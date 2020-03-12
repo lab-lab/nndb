@@ -1,4 +1,4 @@
-# EBDb_project
+# EBDb project by LAB lab, @UCL
 
 Welcome to the EBDb project GitHub page. Here you will find information on movie annotations and fMRI preprocessing steps.
 
