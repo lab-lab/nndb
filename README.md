@@ -9,4 +9,4 @@ https://afni.nimh.nih.gov/pub/dist/doc/htmldoc/background_install/main_toc.html
 Please also make sure to install the Freesurfer software:
 https://surfer.nmr.mgh.harvard.edu/fswiki/DownloadAndInstall
 
-The preprocessing scripts can be found in the preprocessing_files folder.
+The preprocessing scripts can be found in the fmri_preprocessing folder.
