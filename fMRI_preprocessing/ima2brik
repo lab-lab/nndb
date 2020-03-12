@@ -1,0 +1,1285 @@
+#! /bin/sh
+# (next line not seen by tcl) \
+exec tclsh $0 ${1+"$@"}    # goto tcl
+
+### ima2brik: marty sereno
+#------------------------------------------------------------------------------
+# 01 Jun 07: 0.1a -- version 0.1
+# 18 Dec 07: 0.1d -- pipe grep nSize to grep asGroup (skip rare binary match)
+# 02 Jan 08: 0.1e -- stripqb also strips curly braces
+# 03 Jan 08: 0.1f -- option -list now writes zzNOTES (for firewire diskbak)
+# 21 Jan 08: 0.1g -- move aside zzNOTES in case someone wrote one before
+# 30 Jan 08: 0.1h -- print out TE too
+# 31 Jan 08: 0.2a -- parse/renum already-renum'd Trio FIL, rec FIL sequences
+# 13 Feb 08: 0.2b -- fix TR-finding bug, timepattern now assumes interleaved
+# 18 Feb 08: 0.2c -- actual timepattern now recognized and AFNI-converted
+# 24 Feb 08: 0.2d -- convert selected scans bug fixed
+# 17 Mar 08: 0.2e -- recognize ralf_mdeft_sonata as mdeft
+# 18 Mar 08: 0.2f -- better seqname code, user note if unrecognized seqname
+# 29 Apr 08: 0.2g -- alTR bin match avoided => make better ASCII extractor
+# 06 Jun 08: 0.2h -- catch yet another binary mismatch in $sord
+# 07 Jul 08: 0.2i -- finally (!) extract ASCCONV w/perl, grep as before
+# 14 Jul 08: 0.2j -- skipped scan OK, ASCCONV BEGIN/END in dicom or missing
+# 09 Aug 08: 0.2k -- fixed ASCCONV dump logic (ulVersion may appear in dicom)
+# 15 Aug 08: 0.2m -- add -outdir option (e.g., to convert from write-only DVD)
+# 15 Aug 08: 0.2m -- add SSFP scantype (siemens=cv)
+# 01 Oct 08: 0.2n -- ignore scan number 100 (new VB15 exported *.IMA file)
+# 17 Jan 09: 0.2o -- convert dti scantype oj_dti_bucni_v00 (zoltan) reps->dirs
+# 20 Jan 09: 0.2p -- recognize Siemens DTi, tSequenceFileName in zzNOTES
+# 07 Feb 09: 0.2q -- moves second (and higher) echoes into subdir (unconverted)
+# 16 Feb 09: 0.2r -- recognize FIL oliver EPI
+# 01 Apr 09: 0.2s -- recognize FIL hybrid MDEFT sequence
+# 23 Jul 09: 0.2t -- option dumps MOCO parms from saved-by-getheaders->zzSHADOW
+# 12 Apr 10: 0.2u -- recognize BUCNI oliver EPI
+# 07 Oct 10: 0.2v -- recognize Zoltan's new DTi's
+# 19 Apr 11: 0.2w -- begin recognize/convert Antoine's 3D EPI
+# 29 Oct 11: 0.2x -- recog Leipzig mprage/epi, catch zzDUMPHEADER locale err
+# 13 Feb 12: 0.2y -- more Leipzig mprage/epi, accept %04d.%04d Leipzig renum
+# 01 Nov 12: 0.2z -- Zoltan NODDI, new FIL name format (1 less underscore sep)
+# 05 Apr 13: 0.3a -- fix export and mv 2nd echo fieldmap w/new %04d scan nums
+# 14 Apr 13: 0.3b -- recognize 5 kinds of xpace scans (gre,epi,tfl,tse,diff)
+# 20 Aug 13: 0.3c -- recognize multiband as ep2d
+# 26 Oct 13: 0.3d -- recognize oj_mepi_v01t as ojmepi
+# 30 Jan 14: 0.3e -- recognize fl_tof as ojmepi, add -justnifti option
+# 07 Jul 14: 0.3f -- fix bug in string *100 files
+# 24 Nov 14: 0.3g -- setenv AFNI_VERSION_CHECK NO (AFNI server down hangs to3d)
+# 26 Nov 14: 0.3h -- rm existing (non-exec?) zzDUMPHEADER script before remake
+# 02 Mar 15: 0.3i -- put conv->BRIK,NIFTI correctly nto main zzNOTES file
+# 08 Aug 27: 0.3j -- rec MPMs (N.B.: multi echoes in one image)
+# 29 Jan 18: 0.3j -- Jeremy I Skipper - Fixed to3d command so it can handle very large functional runs
+### TODO: extract single scan from 2nd echo moved aside breaks first time
+###INPROG: Antoine's dicoms -> make 3d2brik using imcutup since to3d fails
+###set dicom AYH_INC.MR.UCL_BBK_OLIVER.05.0254.2011.04.18.17.39.03.593750.360934773.IMA
+###set bytes [lindex [exec dicom_hdr $dicom | grep "Pixel array offset"] 4]
+###eval exec tail -c +${bytes} $dicom > zz.bin
+# TODO: recognize al_B1mapping, nw_mtflash3d
+
+### version printed w/help
+set vers 0.3j
+
+### TODO: Siemens diffusion analysis files
+# --3 pseudo 'scans' generated w/suffixes: _FA, _ColFA, _TENSOR
+#-----------------------------------------------------------------------------
+#   console                 dicom     tSequenceFileName     protocol
+#-----------------------------------------------------------------------------
+# ep2d_diff_64_dir        *ep_b0          ep2d_diff    ep2d+AF8-diff+AF8-64dir
+# ep2d_diff_64_dir_FA     *ep_b0_1000     ep2d_diff    ep2d+AF8-diff+AF8-64dir
+# ep2d_diff_64_dir_ColFA  *ep_b0_1000     ep2d_diff    ep2d+AF8-diff+AF8-64dir
+# ep2d_diff_64_dir_TENSOR *epse2d1_128    ep2d_diff    ep2d+AF8-diff+AF8-64dir
+#-----------------------------------------------------------------------------
+#  => last 3 currently fail in to3d (could fix)
+#
+# NOTES
+# --fieldmap: 2 magnitude imgs + 1 phase diff, ASCCONV identical for 2 echoes
+# --example w/43 slices => last field in filename based on time
+# --last field in filename incr by 38 for next *echo*
+# --last field in filename incr by 76 for next *slice* (either echo)
+#------------------------------------------------------------------------------
+
+### filename examples
+#standard BUCNI export
+#  KANAI_RYOTA.MR.UCL_BBK_MARTY.15.0019.2008.01.07.15.05.57.171875.41235028.IMA
+#  name1  name2  name3  scan#  slice#  dat1  dat2  dat3  ??  ??  ??  ??  ?? IMA
+#renamed/exported to Linux from FIL Trio
+#  PITCHER_David_1_3_249_1_249.ima
+#  name1  name2  ??  scan#  vol#  ??  slice#|vol#  ima
+
+##### sequence names ($seqnames)
+### loc
+#tSequenceFileName                        = ""%SiemensSeq%\gre""
+## t1se
+#tSequenceFileName                        = ""%SiemensSeq%\se""
+## fmap
+#tSequenceFileName                        = ""%SiemensSeq%\gre_field_mapping""
+### PD SE
+#tSequenceFileName                        = ""%SiemensSeq%\tse""
+### EPI
+#tSequenceFileName                        = ""%SiemensSeq%\ep2d_pace""
+### EPI
+#tSequenceFileName                        = ""%SiemensSeq%\ep2d_bold""
+### MPRAGE
+#tSequenceFileName                        = ""%SiemensSeq%\tfl""
+### NW-MEPI
+#tSequenceFileName                        = ""%CustomerSeq%\nw_mepi""
+### OJ-MEPI
+#tSequenceFileName                        = ""%CustomerSeq%\oj_mepi_v01""
+### MDEFT Trio
+#tSequenceFileName                        = ""%CustomerSeq%\nw_mdeft_trio""
+### MDEFT Sonata
+#tSequenceFileName                        = "%CustomerSeq%\ralf_mdeft_sonata"
+### SSFP
+#tSequenceFileName                        = ""%SiemensSeq%\CV""
+### Zoltan's dti
+#tSequenceFileName                        = ""%CustomerSeq%\oj_dti_bucni_v00""
+### Siemens DTi
+#tSequenceFileName                        = ""%SiemensSeq%\ep2d_diff""
+### Siemens flow
+#tSequenceFileName                        = ""%SiemensSeq%\se_17rb130""
+### Hybrid MDEFT (two EPI-like lines per alpha)
+#tSequenceFileName                        = ""%CustomerSeq%\nw_hybmdeft""
+### Zoltan's DTi (marty dti3)
+#tSequenceFileName                     = ""%CustomerSeq%\zoltan_dti_trio_vCLa""
+### Zoltan's hi-res (marty dti3)
+#tSequenceFileName                     = ""%CustomerSeq%\zoltan_dti_trio_v02""
+### Zoltan's NODDI (corili)
+#tSequenceFileName                        = ""%CustomerSeq%\zoltan_dti_trio_vNODDI""
+### Antoine's 3.2^3 3D EPI
+#tSequenceFileName                     = ""%CustomerSeq%\al_mepi3d_64x64""
+### Antoine's 2.3^3 3D EPI
+#tSequenceFileName                        = ""%CustomerSeq%\al_mepi3d""
+### Leipzig ISO and Inv2
+#tSequenceFileName                        = ""%CustomerSeq%\mp2rage_wip412c""
+### new Leipzig ISO and Inv2
+#tSequenceFileName                        = ""%CustomerSeq%\mp2rage_wip602B""
+### PMC loc
+#tSequenceFileName                        = ""%CustomerSeq%\mz_gre_xpace""
+### PMC MPRAGE
+#tSequenceFileName                        = ""%CustomerSeq%\herbstm_tfl_xpace""
+### PMC diffusion
+#tSequenceFileName                        = ""%CustomerSeq%\herbstm_ep2d_diff""
+### PMC space
+#tSequenceFileName                        = ""%CustomerSeq%\herbstm_tse_vfl_x2pace""
+### PMC EPI bold
+#tSequenceFileName                        = ""%CustomerSeq%\herbstm_ep2d_bold""
+### multiband
+#tSequenceFileName                        = ""%CustomerSeq%\cmrr_mbep2d_bold""
+### time of flight
+#tSequenceFileName                        = ""%SiemensSeq%\fl_tof""
+### MPM flash's
+#tSequenceFileName                        = ""%CustomerSeq%\nw_mtflash3d_v3h_xpc""
+### MPM B1 mapping
+#tSequenceFileName                        = ""%CustomerSeq%\al_B1mapping_v2b""
+### CMRR diff
+#tSequenceFileName                        = ""%CustomerSeq%\cmrr_mbep2d_diff""
+
+#####################
+### ADD NEW here: grep -a "tSequenceFileName                        =" <dicom>
+### update ADD NEW elseif's below
+#####################
+
+### TODO
+# Nik MT flash sequence
+#tSequenceFileName                        = ""%CustomerSeq%\nw_mtflash3d""
+# Antoine B1 mapping
+#tSequenceFileName                        = ""%CustomerSeq%\al_B1mapping""
+### OTHER TODO: add seqnames: 3DFSE, non-PACE epi, allegra mdeft
+
+### scan arrays indexed by $scan number
+# scans()        -- filecnt for a scan
+# slicereps()    -- slice/rep count from filename
+# seqnames()     -- %SiemensSeq% or %CustomerSeq* name from ASCCONV
+# oseqnames()    -- original sequence name before shortening-for-print
+# recseqflags()  -- recognized sequence flag
+# protnames()    -- protocol name (mangled from user-defined interface name)
+# seqdnames()    -- dicom sequence name grepped from binary header (hack)
+# slicess()      -- 2D: slices from ASCCONV, 3D: from counting mosaic'd files
+# moco()         -- moco flag grepped from binary header (hack)
+# repss()        -- repetitions (epi/dti from filecount, else 1)
+# trs()          -- TR from ASCCONV
+# tes()          -- TE from ASCCONV
+# sords()        -- slice order from ASCCONV
+# echoes()       -- echoes (count of firstslice files with same scan num)
+
+### names
+set afnidir     zzAFNI
+set analyzedir  zzANALYZE
+set niftidir    zzNIFTI
+set shadowdir   zzSHADOW
+set mocodir     zzMOCO
+set logfilename zzNOTES
+set dumpscript  zzDUMPHEADER
+set currhead    zzCURRHEAD
+set stimnotes   zzSTIMNOTES
+set echdpref    zz-scan   ;# for moved-aside second echoes dir(s)
+
+### strip double quotes and backslash and curly braces
+proc stripqb { str } {
+  set i 0
+  set len [string length $str]
+  set newstr ""
+  while {$i < $len} {
+    set c [string index $str $i]
+    if {$c != "\"" && $c != "\\" && $c != "\{" && $c != "\}" } {
+      set newstr "${newstr}${c}"
+    }
+    incr i
+  }
+  return $newstr
+}
+
+### help
+if { [llength $argv] < 1 } {
+puts ""
+puts "Use: \[cd into dir containing one session of Siemens DICOM files\]"
+puts "     ima2brik -list       \[or -info\]"
+puts "     ima2brik -afni"
+puts "     ima2brik -nifti      \[implies -afni, makes .BRIK's and .nii's]"
+puts ""
+puts "  Checks for:"
+puts "    Siemens 14-field export-to-offline files, *.IMA (-offline)"
+puts "    FIL-renamed 8-field Trio exports to Linux, *.ima (-filtrio)"
+puts "    FIL-renamed 7-field Trio exports to Linux, *.ima (-filtrio2)"
+puts ""
+puts "  Reports on, converts Siemens DICOM fileset to AFNI (or other) BRIKs:"
+puts "   --writes into directory containing DICOM's (else use -outdir)"
+puts "   --pad DICOM scan/slice nums to unix sortorder if needed (VB17 is %04d)"
+puts "   --output briks left in subdirs ($afnidir, $analyzedir, $niftidir)"
+puts "   --AFNI programs to3d/3dAFNItoNIFTI/3dANFItoANALYZE must be on path"
+puts "   --analyze and nifti conversions first generate AFNI BRIKs"
+puts "   --leaves perl script ($dumpscript) to dump Siemens ASCCONV header"
+puts "   --converts dti scans w/directions (incl. B0) as if epi time points"
+puts "   --multiple echoes in 1D mosaic in converted MPM BRIKs"
+puts "   --change outdir for read-only infiles (eg. DVD): -outdir <fulldirpath>"
+puts "   --e.g., ima2brik -afni -outdir /tmp/scan1"
+puts "   --option -outdir creates output directory if it doesn't exist"
+puts "   --2nd echo fieldmap moved to subdir (not converted, to do go there)"
+puts ""
+puts "  Rarer options:"
+puts "     ima2brik -justnifti      \[rm's .BRIKs after convert]"
+puts "     ima2brik -list_noNOTES   \[don't touch zzNOTES\]"
+puts "     ima2brik -analyze"
+puts "     \[next two: 1st run getheaders on LEONARDO (outdir:$mocodir)\]"
+puts "     ima2brik -getmoco        \[incl timepnt, space-sep, 3 rot, 3 trans\]"
+puts "     ima2brik -getmoco2       \[omit timepnt, tab-sep, 3 rot, 3 trans\]"
+puts ""
+puts "                                                            vers=$vers"
+puts ""
+exit
+}
+
+### opts
+set outdir .
+set rmbriksflag 0       ;# leave BRIKs generated on way to NIFTI
+set mocoformat 0        ;# 0=time+spacesep, 1=notime+tabsep
+set touchnotesflag 1
+set outfiletype none    ;# none,afni,analyze,nifti,moco
+set filenametype none   ;# none,offline,filtrio,filtrio2
+set argv2 {}
+for {set i 0} {$i < $argc} {incr i} {
+  set arg [lindex $argv $i]
+  if ![string match -* $arg] {
+    lappend argv2 $arg
+  } else {
+    if { $arg == "-afni" } {
+      set outfiletype afni
+    } elseif { $arg == "-analyze" } {
+      set outfiletype analyze
+    } elseif { $arg == "-nifti" } {
+      set outfiletype nifti
+    } elseif { $arg == "-justnifti" } {
+      set outfiletype nifti
+      set rmbriksflag 1
+    } elseif { $arg == "-getmoco" } {
+      set outfiletype moco
+      set filenametype offline
+      set mocoformat 0
+    } elseif { $arg == "-getmoco2" } {
+      set outfiletype moco
+      set filenametype offline
+      set mocoformat 1
+    } elseif { $arg == "-list" || $arg == "-info" } {
+      set outfiletype list
+    } elseif { $arg == "-list_noNOTES" || $arg == "-info_noNOTES" } {
+      set outfiletype list
+      set touchnotesflag 0
+    } elseif { $arg == "-offline" } {
+      set filenametype offline
+    } elseif { $arg == "-filtrio" } {
+      set filenametype filtrio
+    } elseif { $arg == "-filtrio2" } {
+      set filenametype filtrio2
+    } elseif { $arg == "-outdir" && [expr $i+1] < $argc} {
+      set outdir [lindex $argv [incr i]]
+    } else { puts "ima2brik: ### error parsing option: $arg"; exit }
+  }
+}
+# argv2 has (currently unused) non-option args
+if { $outfiletype == "none" } {
+  puts "ima2brik: ### must specify -list, -afni, -analyze, -nifti, or -getmoco"
+  exit
+}
+if { $filenametype == "none" }    { set imsuff IMA }
+if { $filenametype == "offline" } { set imsuff IMA }
+if { $filenametype == "filtrio" } { set imsuff ima }
+if { $filenametype == "filtrio2" } { set imsuff ima }
+
+### where to put output
+set dicomdir [pwd]
+set makelinksflag 0
+if { "$outdir" == "." } {
+  if { ![file writable $dicomdir] && $outfiletype != "list" } {
+    puts "ima2brik: ### $dicomdir not writable, use: -outdir <writable_dir>"
+    exit
+  }
+} else {  ;# write output elsewhere
+  if { [string range $outdir 0 0] != "/" } {
+    puts "ima2brik: ### -outdir requires full path (e.g., /tmp/080329MS)"
+    exit
+  }
+  if { [file exists $outdir] } { ;# existing dir
+    if ![file writable $outdir] {
+      puts "ima2brik: ### -outdir $outdir exists, but not writable"
+      exit
+    }
+    if { [glob -nocomplain $outdir/*.IMA $outdir/*.ima] != "" } {
+      puts "ima2brik: ### -outdir can't contain *.IMA or *.ima files"
+      exit
+    }
+  } else { ;# make outdir
+    exec mkdir $outdir
+    if ![file exists $outdir] {
+      puts "ima2brik: ### couldn't create output directory: $outdir"
+      exit
+    }
+  }
+  set makelinksflag 1
+}
+if { "$outdir" == "$dicomdir" } {
+  set outdir .
+  set makelinksflag 0  ;# silently correct to avoid trying to make links in pwd
+}
+set logfile $outdir/$logfilename
+
+### extract time series from shadow headers and quit (assumes slicenum=timepnt)
+if { $outfiletype == "moco" } {
+  ### errors
+  if { $filenametype != "offline" } {
+    puts "ima2brik: ### -getmoco only for export-to-offline files from Leonardo"
+    exit
+  }
+  if { ![file exists $shadowdir] } {
+    puts "ima2brik: ### shadow header directory: $shadowdir not found"
+    puts "ima2brik: ### first run getheaders <scandir> in cmd tool on Leonardo"
+    exit
+  }
+  if { "$outdir" == "." } {
+    if { ![file writable $dicomdir] } {
+      puts "ima2brik: ### $dicomdir not writable" ;# TODO: link vers like below
+      exit
+    }
+    if { ![file exists $mocodir] } { exec mkdir $mocodir }  ;# overwrites
+  }
+  cd $shadowdir
+  set shfiles [glob -nocomplain *.$imsuff.txt]
+  set shfilecnt [llength $shfiles]
+  if {$shfilecnt == 0} {
+    puts "ima2brik: ### no files match *.$imsuff.txt in $dicomdir"
+    exit
+  }
+  puts ""
+  set fields [split [lindex $shfiles 0] .]
+  set name [lindex $fields 0].[lindex $fields 1].[lindex $fields 2]
+  if {$mocoformat == 0} {
+    puts "ima2brik: extract MoCo parms from shadow headers (incl t, space-sep)"
+  }
+  if {$mocoformat == 1} {
+    puts "ima2brik: extract MoCo parms from shadow headers (no t, tab-sep)"
+  }
+  puts "ima2brik: scan -> $dicomdir"
+  puts "ima2brik: name -> $name"
+
+  ### first pass renumber (parallel to image files, fixes sort)
+  set i 0
+  foreach infile $shfiles {
+    set fields [split $infile .]
+    set outfile [lindex $fields 0]
+    foreach j { 1 2 } { set outfile $outfile.[lindex $fields $j] }
+    # catch already-converted w/leading 0's (tcl interprets as octal/hex)
+    set outfile $outfile.[format "%02d" [string trimleft [lindex $fields 3] 0]]
+    set outfile $outfile.[format "%04d" [string trimleft [lindex $fields 4] 0]]
+    foreach j {5 6 7 8 9 10 11 12 13 14} {  ;# 15th => .txt suffix
+      set outfile $outfile.[lindex $fields $j]
+    }
+    if { "$infile" != "$outfile" } {  ;# only mv/rename if not renamed
+      exec mv $infile $outfile
+      incr i
+    }
+  }
+  puts \
+    "ima2brik: found $shfilecnt shadow header files in $shadowdir (renamed $i)"
+
+  ### second pass dig out parms, one file per scan, 6 rot/trans per line
+  # example data lines, with/without MoCo
+  #68 - 'RBMoCoTrans'      VM 3, VR FD, SyngoDT 4, NoOfItems 0, Data
+  #68 - 'RBMoCoTrans'      VM 3, VR FD, SyngoDT 4, NoOfItems 6, Data '-0.01745348'\'0.00738258'\'0.02195994'
+  #69 - 'RBMoCoRot'        VM 3, VR FD, SyngoDT 4, NoOfItems 0, Data
+  #69 - 'RBMoCoRot'        VM 3, VR FD, SyngoDT 4, NoOfItems 6, Data '0.06944133'\'-0.05728205'\'0.01080992'
+  ## NoOfItems=6 for data consisting of 3 single-quoted backslash-separated vals
+  ## AFNI: Roll Pitch Yaw dS dL dP  (SPM??)
+  set lastscan 99   ;# trigger open first file
+  set lasttimepnt 9999
+  set lastmocoscanflag 0
+  set shfiles [glob -nocomplain *.$imsuff.txt]
+  foreach shfile [lsort $shfiles] {
+    set fields [split $shfile .]
+    set scan [string trimleft [lindex $fields 3] 0]  ;# potentially renum'd OK
+    set timepnt [string trimleft [lindex $fields 4] 0]  ;# assume mosaic
+    set transs {}  ;# 3 translations
+    set rots {}    ;# 3 rotations
+    if { ![catch { exec grep "^68 - 'RBMoCoTrans'" $shfile } ret] } {
+      set fields [split $ret " "]
+      set noofitems [string trimright [lindex $fields 10] ,]
+      if {$noofitems == 6} {
+        set qtranss [split [lindex $fields 12] \\ ]
+        foreach qtrans $qtranss { lappend transs [string trim $qtrans \' ] }
+      }
+    }
+    if { ![catch { exec grep "^69 - 'RBMoCoRot'" $shfile } ret] } {
+      set fields [split $ret " "]
+      set noofitems [string trimright [lindex $fields 10] ,]
+      if {$noofitems == 6} {
+        set qrots [split [lindex $fields 12] \\ ]
+        foreach qrot $qrots { lappend rots [string trim $qrot \' ] }
+      }
+    }
+    set mocoscanflag 0
+    if { [llength $transs] && [llength $rots] } { set mocoscanflag 1 }
+    if {$scan > $lastscan} {
+      if {$lastmocoscanflag} {
+         close $idmoco
+         puts "   => $lasttimepnt time points"
+      }
+      puts ""
+      puts "ima2brik: checking scan[format "%02d" $scan]"
+      if {$mocoscanflag} { ;# first shadow file
+        if {$timepnt != 1} {
+          puts \
+         "ima2brik: ### 1st timepnt scan $scan is $timepnt (partial transfer?)"
+          puts "  $shfile"
+        }
+        set outfilemoco ../$mocodir/scan[format "%02d" $scan].MOCO
+        set idmoco [open $outfilemoco w 0644]
+        puts "   => MoCo outfile: [string range $outfilemoco 3 end]"
+      } else { puts "   \[non-MoCo scan\]" }
+    }
+    if {$mocoscanflag} { ;# all shadow files
+      if {$mocoformat == 0} { puts $idmoco "$timepnt $rots $transs" }
+      if {$mocoformat == 1} {
+        puts $idmoco "[lindex $rots 0]\t[lindex $rots 1]\t[lindex $rots 2]\t[lindex $transs 0]\t[lindex $transs 1]\t[lindex $transs 2]"
+      }
+    }
+    set lastscan $scan
+    set lasttimepnt $timepnt
+    set lastmocoscanflag $mocoscanflag
+  } ;# foreach shadow header file
+  if {$lastmocoscanflag} { close $idmoco; puts "" }
+  puts ""
+  puts "done"
+  exit
+}
+
+### make tiny perl script to dump ASCII header, leave it there for user
+if {$outfiletype == "list" && ![file writable .] } { set outdir /tmp }
+if [file exists $outdir/$dumpscript] { exec rm -f $outdir/$dumpscript }
+if [file exists $outdir/$dumpscript] {
+  puts "ima2brik: ### can't remove/remake $dumpscript in outdir: $outdir"
+  puts "ima2brik: ### manually remove $dumpscript and try again"
+  exit
+}
+set id [open $outdir/$dumpscript w 0755]  ;# ugo+rx, u+w
+puts $id "#!/usr/bin/perl"
+puts $id "### marty: dump Siemens ASCII ima header (ASCCONV BEGIN/END can occur in dicom)"
+puts $id "\$\\ = \"\\n\";"
+puts $id "\$pr = 0;"
+puts $id "\$fl = 0;"
+puts $id "if (\$#ARGV < 0) { die(\"use: $dumpscript <siemens.IMA>\\n\"); }"
+puts $id "open FILE, \$ARGV\[0\] or die \$!;"
+puts $id "while (<FILE>) {"
+puts $id "  chop;"
+puts $id "  if (/### ASCCONV BEGIN ###/) { \$fl = 1; next; }"
+puts $id "  if (/ulVersion                                = / && \$fl eq 1) { \$pr = 1; }"
+puts $id "  if (/### ASCCONV END ###/ && \$pr eq 1) { exit; }"
+puts $id "  if (\$pr) { print \$_; }"
+puts $id "}"
+close $id
+
+### check for AFNI binaries
+foreach bin { to3d 3dAFNItoANALYZE 3dAFNItoNIFTI } {
+  catch { exec which $bin } ret ;# no sh/bash which built-in -- use /bin/which
+  if [string match "*no $bin*" $ret] {
+    puts ""
+    puts "ima2brik: ### AFNI $bin not found on your \$path"
+    puts "try adding something like this to your .cshrc (csh, tcsh):"
+    puts ""
+    puts "  # add to \$path (can be re-run without adding duplicates)"
+    puts "  set addpathlist = ( /usr/local/afni/linux_xorg7 )"
+    puts "  foreach dir ( \$addpathlist )"
+    puts "    if (\"\$path\" !~ *\$dir*) set path = (\path \$dir)"
+    puts "  end"
+    puts "  unset addpathlist dir"
+    puts ""
+    if {$outfiletype != "list"} { exit } else { break }  ;# -list is standalone
+  }
+}
+
+### get filename list (if filenametype not set, try *.IMA first, then *.ima)
+set files [glob -nocomplain *.$imsuff]
+set filecnt [llength $files]
+if {$filenametype == "none"} {
+  if {$filecnt == 0} {
+    set imsuff ima
+    set files [glob -nocomplain *.$imsuff]
+    set filecnt [llength $files]
+    if {$filecnt == 0} {
+      puts "ima2brik: ### no files match *.ima or *.IMA in $dicomdir"
+      exit
+    } else {
+      #set filenametype filtrio
+      set filenametype filtrio2
+      puts "ima2brik: guessing -filtrio2 name format for *.ima files"
+    }
+  } else {
+    set filenametype offline
+  }
+}
+if {$filecnt == 0} {
+  puts "ima2brik: ### no files match *.$imsuff in $dicomdir"
+  exit
+}
+
+### remove scan 100 *.IMA from filename list before doing anything
+set files100 [glob -nocomplain *.*.*.*100.*.*.*.*.*.*.*.*.*.IMA]
+if [llength $files100] {
+  set cleaninfiles {}
+  foreach infile $files {
+    set found 0
+    foreach file100 $files100 {
+      if [string match $file100 $infile] { set found 1 }
+    }
+    if {!$found} { lappend cleaninfiles $infile }
+    #TODO: filtrio
+  }
+  set files $cleaninfiles
+}
+
+### get session name from first three fields of first file
+if { $filenametype == "offline" } {
+  set fields [split [lindex $files 0] .]
+  set name [lindex $fields 0].[lindex $fields 1].[lindex $fields 2]
+}
+if { $filenametype == "filtrio" } {
+  set fields [split [file rootname [lindex $files 0]] _]
+  set name [lindex $fields 0]_[lindex $fields 1]_[lindex $fields 2]
+}
+if { $filenametype == "filtrio2" } {  ;# one less entry in the name field
+  set fields [split [file rootname [lindex $files 0]] _]
+  set name [lindex $fields 0]_[lindex $fields 1]
+}
+
+
+puts "\nima2brik: found $filecnt *.$imsuff files"
+puts "          in $dicomdir"
+puts "          for $name"
+puts "          to rename/convert\n"
+
+### get each scan filecnt from possibly renum'd filename (slices|t's|diffdirs)
+foreach infile $files {
+  if { $filenametype == "offline" } {
+    set fields [split $infile .]
+    if { [llength $fields] != 14 } {
+      puts \
+"ima2brik: ### $infile doesn't have 14 dot-separated fields ...quitting"
+      exit
+    }
+    # catch already-converted with leading 0's (tcl interprets as octal/hex)
+    set scan [string trimleft [lindex $fields 3] 0]
+    set slicerep [string trimleft [lindex $fields 4] 0]
+    if ![info exists scans($scan)] {set scans($scan) 1} else {incr scans($scan)}
+    if { ![info exists slicereps($scan)] || $slicerep > $slicereps($scan) } {
+      set slicereps($scan) $slicerep
+    }
+  }
+  if { $filenametype == "filtrio" } {
+    set fields [split [file rootname $infile] _]
+    if { [llength $fields] != 7 } {  ;# one less because .ima stripped
+      puts \
+"ima2brik: ### $infile doesn't have 7 underscore-separated fields ...quitting"
+      exit
+    }
+    # catch already-converted with leading 0's (tcl interprets as octal/hex)
+    set scan [string trimleft [lindex $fields 3] 0]
+    set slicerep [string trimleft [lindex $fields 6] 0]
+    if ![info exists scans($scan)] {set scans($scan) 1} else {incr scans($scan)}
+    if { ![info exists slicereps($scan)] || $slicerep > $slicereps($scan) } {
+      set slicereps($scan) $slicerep
+    }
+  }
+  if { $filenametype == "filtrio2" } {
+    set fields [split [file rootname $infile] _]
+    if { [llength $fields] != 6 } {  ;# one less because .ima stripped
+      puts \
+"ima2brik: ### $infile doesn't have 6 underscore-separated fields ...quitting"
+      exit
+    }
+    # catch already-converted with leading 0's (tcl interprets as octal/hex)
+    set scan [string trimleft [lindex $fields 2] 0]
+    set slicerep [string trimleft [lindex $fields 5] 0]
+    if ![info exists scans($scan)] {set scans($scan) 1} else {incr scans($scan)}
+    if { ![info exists slicereps($scan)] || $slicerep > $slicereps($scan) } {
+      set slicereps($scan) $slicerep
+    }
+  }
+}
+
+### open log (use [file owned] because [file writable] fails for . ..)
+if { [file owned .] && $outfiletype != "none" && \
+     $outfiletype != "moco" && $touchnotesflag != 0} {
+  if { ![file exists $logfile] } {
+    set idnotes [open $logfile w 0666]
+  } elseif { [file exists $logfile] && [file writable $logfile] } {
+    if ![file exists $logfile~] {
+      exec mv $logfile $logfile~
+    } else {
+      if [file writable $logfile~] {
+        exec mv $logfile $logfile~
+      }
+    }
+    set idnotes [open $logfile w 0666]
+  } else {
+    set idnotes [open /dev/null w 0666]
+  }
+} else {
+  set idnotes [open /dev/null w 0666]
+}
+
+### foreach first file, read some info from Siemens extra ascii info
+foreach scan [lsort -integer [array names scans]] {
+  ## find (possibly renumbered) first slice
+  if { $filenametype == "offline" } {
+    set first [glob -nocomplain ${name}.${scan}.1.*.$imsuff]
+  }
+  if { $filenametype == "filtrio" || $filenametype == "filtrio2" } {
+    set first [glob -nocomplain ${name}_${scan}_1_*_1.$imsuff]
+  }
+  if {$first == ""} {  ;# retry if empty
+    set fscan [format "%02d" $scan]   ;# try already BUCNI renumbered
+    if { $filenametype == "offline" } {
+      set first [glob -nocomplain ${name}.${fscan}.0001.*.$imsuff]
+    }
+    if { $filenametype == "filtrio" || $filenametype == "filtrio2" } {
+      set first [glob -nocomplain ${name}_${fscan}_0001_*_0001.$imsuff]
+    }
+    if {$first == ""} {
+      set fscan [format "%04d" $scan]   ;# try already Leipzig/VB17 renumbered
+      if { $filenametype == "offline" } {
+        set first [glob -nocomplain ${name}.${fscan}.0001.*.$imsuff]
+      }
+    }
+  }
+  if {$first == ""} { puts "ima2brik: ### first file of scan $scan not found" }
+  set first [lsort $first] ;#assume multiecho order by filename timestamp infix
+  set firstcnt [llength $first]
+  set echoes($scan) $firstcnt
+  if { $firstcnt != 1 } {
+    puts ""
+    puts "ima2brik: ### found multiple ($firstcnt) first files for scan $scan"
+    foreach firstfile $first { puts "  $firstfile" }
+    puts "ima2brik: ### OK if scan $scan is a multi-echo scan (e.g., fieldmap)"
+    puts "ima2brik: ### if not, export offline new dir (Leonardo), re-transfer"
+    puts "ima2brik: ### moving second (and higher) echoes to subdir ..."
+    ### mv second (and higher) files aside into subdir(s) without converting
+    set echo 1  ;# zero-based
+    set echosufflist "a b c d e f g h i j k l m n o p q r s t u v w x y z"
+    while { $echo < $firstcnt } {
+      # e.g., currently: zz-scan03b ($echdpref=zz-scan)
+      set echosubdir $echdpref[format "%02d" $scan][lindex $echosufflist $echo]
+      if [file exists $echosubdir] {
+        puts "ima2brik: ### $echosubdir exists: move aside and re-run"
+        exit
+      }
+      exec mkdir $echosubdir
+      set rep 1
+      while { $rep <= $slicereps($scan) } {
+        if { $filenametype == "offline" } {
+          set replist [glob -nocomplain ${name}.${scan}.${rep}.*.$imsuff]
+        }
+        if { $filenametype == "filtrio" || $filenametype == "filtrio2" } {
+          set replist [glob -nocomplain ${name}_${scan}_${rep}_*_${rep}.$imsuff]
+        }
+        if {$replist == ""} {
+          set fscan [format "%02d" $scan]   ;# already renumbered
+          set frep [format "%04d" $rep]
+          if { $filenametype == "offline" } {
+            set replist [glob -nocomplain ${name}.${fscan}.${frep}.*.$imsuff]
+          }
+          if { $filenametype == "filtrio" || $filenametype == "filtrio2" } {
+            set replist \
+              [glob -nocomplain ${name}_${fscan}_${frep}_*_${frep}.$imsuff]
+          }
+          if {$replist == ""} {
+            set fscan [format "%04d" $scan] ;# try already Leipzig/VB17 renum
+            if { $filenametype == "offline" } {
+              set replist [glob -nocomplain ${name}.${fscan}.${frep}.*.$imsuff]
+            }
+          }
+        }
+        if {$replist == ""} {
+          puts "ima2brik: ### missing slice $rep for echo [expr $echo + 1]"
+          exit
+        }
+        exec mv [lindex [lsort $replist] $echo] $echosubdir
+        incr rep
+      }
+      puts "ima2brik: ### moved echo [expr $echo + 1] into subdir: $echosubdir"
+      puts "ima2brik: ### not converted (can run ima2brik in $echosubdir)"
+      puts ""
+      incr echo
+    } ;# done with extra echoes
+    set first [lindex $first 0]
+  }
+  # dump Siemens ASCII
+  catch { exec $outdir/$dumpscript $first > $outdir/$currhead } ret
+  #puts $ret
+  set firsthead $outdir/$currhead
+  ## seq name
+  set patt "tSequenceFileName"
+  if { ![catch { exec grep "$patt" $firsthead } ret] } {
+    #puts ret=$ret
+    set seqname [lindex [stripqb $ret] 2]
+    if [string match *%SiemensSeq%* $seqname] {
+      set seqname [string range $seqname 12 end]
+    } elseif [string match *%CustomerSeq%* $seqname] {
+      set seqname [string range $seqname 13 end]
+    } else { set seqname notinhead }
+    set oseqname $seqname   ;# save before modify
+    ### ADD NEW: add new recognized seqnames here (shorten some to 6 for table)
+    set recseqflag 1
+    if [string match gre $seqname] {
+      set seqname gre
+    } elseif [string match se $seqname] {
+      set seqname se
+    } elseif [string match tse $seqname] {
+      set seqname tse
+    } elseif [string match gre_field_mapping $seqname] {
+      set seqname fmap
+    } elseif [string match AAScout $seqname] {
+      set seqname AAscou
+    } elseif [string match mz_gre_xpace $seqname] {
+      set seqname gre
+    } elseif [string match herbstm_tfl_xpace $seqname] {
+      set seqname mprage
+    } elseif [string match tfl $seqname] {     ;# could be non-prep
+      set seqname mprage
+    } elseif [string match mp2rage_wip412c $seqname] {
+      set seqname mprage
+    } elseif [string match mp2rage_wip602B $seqname] {
+      set seqname mprage
+    } elseif [string match nw_mdeft_trio $seqname] {
+      set seqname mdeft
+    } elseif [string match ralf_mdeft_sonata $seqname] {
+      set seqname mdeft
+    } elseif [string match nw_hybmdeft $seqname] {
+      set seqname hmdeft
+    } elseif [string match nw_mtflash3d_v3h_xpc $seqname] {
+      set seqname mpm
+    } elseif [string match al_B1mapping_v2b $seqname] {
+      set seqname sse
+    } elseif [string match tse_vfl $seqname] {
+      set seqname tseSP
+    } elseif [string match herbstm_tse_vfl_x2pace $seqname] {
+      set seqname tseSP
+    } elseif [string match ep2d_pace $seqname] {
+      set seqname ep2d
+    } elseif [string match ep2d_bold $seqname] {
+      set seqname ep2d
+    } elseif [string match herbstm_ep2d_bold $seqname] {
+      set seqname ep2d
+    } elseif [string match cmrr_mbep2d_bold $seqname] {
+      set seqname ep2d
+    } elseif [string match nw_mepi $seqname] {
+      set seqname nwmepi
+    } elseif [string match oj_mepi_bucni_v00 $seqname] {
+      set seqname ojmepi
+    } elseif [string match oj_mepi_v01 $seqname] {
+      set seqname ojmepi
+    } elseif [string match oj_mepi_v01t $seqname] {
+      set seqname ojmepi
+    } elseif [string match CV $seqname] {
+      set seqname cv
+    } elseif [string match oj_dti_bucni_v00 $seqname] {
+      set seqname dti
+    } elseif [string match ep2d_diff $seqname] {
+      set seqname dti
+    } elseif [string match zoltan_dti_trio_vCLa $seqname] {
+      set seqname dti
+    } elseif [string match zoltan_dti_trio_v02 $seqname] {
+      set seqname dti
+    } elseif [string match zoltan_dti_trio_vNODDI $seqname] {
+      set seqname dti
+    } elseif [string match cmrr_mbep2d_diff $seqname] {
+      set seqname dti
+    } elseif [string match herbstm_ep2d_diff $seqname] {
+      set seqname dti
+    } elseif [string match al_mepi3d_64x64 $seqname] {
+      set seqname almepi
+    } elseif [string match al_mepi3d $seqname] {  ;# 96x96
+      set seqname almepi
+    } elseif [string match se_17rb130 $seqname] {
+      set seqname se
+    } elseif [string match ep2d* $seqname] {   ;# mop-up (TODO: get non-pace)
+      set seqname ep2d
+    } elseif [string match fl_tof* $seqname] {
+      set seqname tof
+    } else {
+     set recseqflag 0    ;# leave unrec seqname unchanged
+    }
+    # TODO: dti
+  } else { set seqname notrec; set recseqflag 0 }
+  set seqnames($scan) $seqname
+  set oseqnames($scan) $oseqname
+  set recseqflags($scan) $recseqflag
+  ## prot name (can be changed by user)
+  set patt "tProtocolName"
+  if { ![catch { exec grep "$patt" $firsthead } ret] } {
+    #puts ret=$ret
+    set protname [lindex [stripqb $ret] 2]
+  } else { set protname noprotname }
+  set protnames($scan) $protname    ;# not now printed, hack to find localizer
+  ## seq dicom name (N.B.: this one from binary header!)
+  if { ![catch { exec strings $first | grep ^\* } ret] } {
+    #puts ret=$ret
+    set seqdname [lindex [stripqb $ret] 0]
+  } else { set seqdname none }  ;# this string is not found in FIL sequences
+  set seqdnames($scan) $seqdname  ;# not printed by -list but in zzNOTES
+  ## reps (for mosaicfiles [epi/dti] slice num [was z] promoted to t [dti=dir])
+  if { $seqname == "ep2d" || $seqname == "nwmepi" || $seqname == "dti" || \
+       $seqname == "ojmepi" || $seqname == "almepi" } {  ;# ADD NEW
+    set repss($scan) $scans($scan)
+  } else { set repss($scan) 1 }
+  ## slices
+  # mosaic1: all slices in one file -> get slice count from header
+  set patt "nSize"
+  if { ![catch { exec grep "$patt" $firsthead } ret] } {
+    #puts ret=$ret
+    set slicess($scan) [lindex $ret 2]
+  } else { set slicess($scan) 0 } ;# failed
+  # mosaic2: all slices in one file -> override above w/3D scan special case
+  if {$seqname == "almepi" } {
+    set patt "lPartitions"  ;# 3D epi(dti) slices from partitions
+    if { ![catch { exec grep "$patt" $firsthead } ret] } {
+      set slicess($scan) [lindex $ret 2]
+    } else { set slicess($scan) 0 } ;# failed
+  }
+  # non-mosaic: one slice per file -> override above w/number of files
+  if {$seqname != "ep2d" && $seqname != "nwmepi" && $seqname != "dti" && \
+      $seqname != "ojmepi" && $seqname != "almepi" } { ;# ADD NEW
+    set slicess($scan) $scans($scan)  ;# epi(dti) have 1 TR(dir) per 'slice'
+  }
+  ## TR -- 3 backslashes: 2 to pass 1 to grep, 3rd to block tcl bracket
+  set patt "alTR\\\[0\\\]"
+  if { ![catch { exec grep "$patt" $firsthead } ret] } {
+    #puts ret=$ret
+    set tr [expr [lindex $ret 2]/1000]
+    # N.B.: nw_mepi TR is one slice, not one volume
+    if {$seqname == "nwmepi" || $seqname == "almepi"} { ;# ADD NEW
+      set tr [expr $tr * $slicess($scan)]
+    }
+    set trs($scan) $tr
+  } else { set trs($scan) 0 } ;# was ""
+  ## TE: 3 backslashes: pass 1 to grep, block tcl bracket
+  set patt "alTE\\\[0\\\]"
+  if { ![catch { exec grep "$patt" $firsthead } ret] } {
+    #puts ret=$ret
+    set tes($scan) [expr [lindex $ret 2]/1000.0]
+  } else { set tes($scan) "" }
+  ## slice order (from Doug Greve)
+  set patt "sSliceArray.ucMode"
+  if { ![catch { exec grep "$patt" $firsthead } ret] } {
+    #puts ret=$ret
+    set sordflag [lindex $ret 2]
+    set sord unknown
+    if {"$sordflag" == "0x1"} { set sord asc } ;# ascending (inf up)
+    if {"$sordflag" == "0x2"} { set sord des } ;# descending (sup down)
+    if {"$sordflag" == "0x4"} { set sord int } ;# interleaved (inf up, o=1,e=2)
+    set sords($scan) $sord
+  } else { set sords($scan) unknown }
+#zzzz -- ucBold3dPace = 0x2, pace-capable seq, but pace could be ON or OFF (?)
+#zzzz -- turning on MoCo generates PACE+MOCO, MoCo off probably neither
+#zzzz -- ASCCONV headers of PACE and PACE+MOCO are identical
+  ## moco flag -- N.B.: this one currently from binary header!
+  #TODO: some strings'd non-moco contain "MoCoSeries" but not ^MoCoSeries
+  #set moco($scan) [string match *MoCoSeries* [exec strings $first]]
+  set moco($scan) 0
+  foreach line [split [exec strings $first]] {
+    if [string match MoCoSeries* $line] { set moco($scan) 1 }
+  }
+  ## print
+  if [file exists $outdir/$currhead] { exec rm $outdir/$currhead }
+  if { [expr $scans($scan)/$echoes($scan)] != $slicereps($scan) } { ;# err exit
+    puts "scan [format "%2d" $scan]: [format "%4d" $scans($scan)] files\
+      --- $seqname (max image index = $slicereps($scan))"
+    puts "ima2brik: ### num files doesn't match index in filename ...quitting"
+    puts "ima2brik: (transfer in progress not finished?)"
+    exit
+  } else { ;# print line of table
+    if {$moco($scan)} { set mocotag "MCo" } else { set mocotag "" }
+    if {$seqname == "dti"} { set zname dirs } else { set zname reps }
+    set line "scan [format "%2d" $scan]: [format "%4d" $scans($scan)] files \
+      seq=$seqname\t[format "%3d" $repss($scan)] $zname \
+      [format "%3d" $slicess($scan)] slices TR=[format "%4d" $trs($scan)] \
+      TE=$tes($scan) OR=$sords($scan) $mocotag"
+    puts "$line"
+    puts $idnotes "$line"
+  }
+} ;# foreach firstfile
+## note if some unrecognized
+set unrecs 0
+foreach scan [lsort -integer [array names scans]] {
+  if { $recseqflags($scan) == 0 } { set unrecs 1 }
+}
+if {$unrecs} {
+  puts ""
+  puts "ima2brik: ### unrecognized scantype(s)  ...leave note for Marty\n"
+  foreach scan [lsort -integer [array names scans]] {
+    if {$recseqflags($scan) == 0} {
+      puts "  scan [format "%2d" $scan]: $seqnames($scan)"
+    }
+  }
+}
+puts ""
+if { $outfiletype == "list" } {
+  close $idnotes
+  if ![file writable .] { exec rm -f $outdir/$dumpscript $outdir/$currhead }
+  exit
+}
+## ready to convert, wait for user input
+puts $idnotes ""
+puts "(1) Verify that files/reps/slices/TRs are correct"
+puts "(2) one of the following:"
+puts "     -- ctrl-D to convert all"
+puts "     -- space-separated subset of scan nums to convert, <Ret>, ctrl-D"
+puts "     -- ctrl-C to quit without doing anything"
+set resp [read stdin]
+if [llength $resp] { set selectedscans $resp }
+#puts $resp
+
+### check, renumber every file (already renumbered OK)
+set i 0
+cd $outdir   ;# outdir is '.' or somewhere_writable
+puts "output directory: [pwd]"
+foreach infile $files {
+  if { $filenametype == "offline" } {  ;# Siemens exported dicom's
+    set fields [split $infile .]  ;# period separators
+    set outfile [lindex $fields 0]
+    foreach j { 1 2 } { set outfile $outfile.[lindex $fields $j] }
+    # format, catch already-conv'd arg3,4 (tcl thinks leading 0's are octal/hex)
+    set outfile $outfile.[format "%02d" [string trimleft [lindex $fields 3] 0]]
+    set outfile $outfile.[format "%04d" [string trimleft [lindex $fields 4] 0]]
+    foreach j {5 6 7 8 9 10 11 12 13} {set outfile $outfile.[lindex $fields $j]}
+    if {$makelinksflag} {
+      exec ln -s $dicomdir/$infile $outfile ;# always mk link, even if renamed
+      incr i
+    } else {
+      if { "$infile" != "$outfile" } {  ;# only mv/rename if not renamed
+        exec mv $infile $outfile
+        incr i
+      }
+    }
+  }
+  if { $filenametype == "filtrio" } {  ;# filtrio fredlots
+    set fields [split [file rootname $infile] _]  ;# underscore separators
+    set outfile [lindex $fields 0]
+    foreach j { 1 2 } { set outfile ${outfile}_[lindex $fields $j] }
+    # format, catch already-conv'd arg3,4 (tcl thinks leading 0's are octal/hex)
+   set outfile ${outfile}_[format "%02d" [string trimleft [lindex $fields 3] 0]]
+   set outfile ${outfile}_[format "%04d" [string trimleft [lindex $fields 4] 0]]
+   set outfile ${outfile}_[lindex $fields 5]
+   set outfile ${outfile}_[format "%04d" [string trimleft [lindex $fields 6] 0]]
+   set outfile $outfile.ima   ;# tack back on
+    if {$makelinksflag} {
+      exec ln -s $dicomdir/$infile $outfile
+      incr i
+    } else {
+      if { "$infile" != "$outfile" } {
+        exec mv $infile $outfile
+        incr i
+      }
+    }
+  }
+  if { $filenametype == "filtrio2" } {  ;# new fredlots
+    set fields [split [file rootname $infile] _]  ;# underscore separators
+    set outfile [lindex $fields 0]
+    foreach j { 1 } { set outfile ${outfile}_[lindex $fields $j] }
+    # format, catch already-conv'd arg3,4 (tcl thinks leading 0's are octal/hex)
+   set outfile ${outfile}_[format "%02d" [string trimleft [lindex $fields 2] 0]]
+   set outfile ${outfile}_[format "%04d" [string trimleft [lindex $fields 3] 0]]
+   set outfile ${outfile}_[lindex $fields 4]
+   set outfile ${outfile}_[format "%04d" [string trimleft [lindex $fields 5] 0]]
+   set outfile $outfile.ima   ;# tack back on
+    if {$makelinksflag} {
+      exec ln -s $dicomdir/$infile $outfile
+      incr i
+    } else {
+      if { "$infile" != "$outfile" } {
+        exec mv $infile $outfile
+        incr i
+      }
+    }
+  }
+} ;# foreach renumbered file
+if { $filenametype == "offline" } { set userfilenametype "14-field offline" }
+if { $filenametype == "filtrio" } { set userfilenametype "8-field filtrio" }
+if { $filenametype == "filtrio2" } { set userfilenametype "7-field filtrio" }
+if {$makelinksflag} {
+  puts "ima2brik: checked $filecnt $userfilenametype files: (linked $i)\n"
+} else {
+  puts "ima2brik: checked $filecnt $userfilenametype files: (renamed $i)\n"
+}
+
+### convert IMA sets to BRIKs (do always: -analyze and -nifti imply -afni)
+if { $outfiletype == "afni" || $outfiletype == "analyze" || \
+     $outfiletype == "nifti" } {
+  set outfilelist ""
+  foreach scan [lsort -integer [array names scans]] {
+    if [info exists selectedscans] {
+      set found 0
+      foreach s $selectedscans { if [string match $s $scan] { set found 1 } }
+      if {!$found} {
+        puts "\n############## skipping scan $scan ##############\n"
+        puts $idnotes "\n############## skipping scan $scan ##############\n"
+        continue
+      }
+    }
+    ## setup vars
+    set fscan [format "%02d" $scan]
+    set seqname $seqnames($scan)
+    set oseqname $oseqnames($scan)
+    set protname $protnames($scan)
+    set seqdname $seqdnames($scan)
+    set slices $slicess($scan)
+    set sord $sords($scan)
+    if {$sord == "asc"} { set tpattern seqplus }
+    if {$sord == "des"} { set tpattern seqminus }
+    if {$sord == "int"} {
+      if { [expr $slices%2] == 0 } {   ;# tested for transverse
+        set tpattern alt+z2   ;# even: first slice is second-most inferior
+      } else {
+        set tpattern alt+z    ;# odd: first slice is most inferior
+      }
+    }
+    set reps $repss($scan)
+    set tr $trs($scan)
+    if { $moco($scan) } { set mocotype -moco } else { set mocotype "" }
+    set outfile scan${fscan}+orig.BRIK
+    ## check exist
+    if { [file exists $afnidir] && [file exists $afnidir/$outfile] } {
+      puts "ima2brik: ### outfile $afnidir/$outfile exists ...skipping this one"
+      set convertedscans($scan) $scans($scan)
+      continue
+    }
+    if [file exists $outfile] {
+      puts "ima2brik: ### outfile $outfile exists in"
+      puts "                $dicomdir ...skipping this one"
+      puts "ima2brik: ### N.B.: ima2brik interrupt? -- safest: clean-up, redo"
+      set convertedscans($scan) $scans($scan)
+      continue
+    }
+    ## convert to BRIK with AFNI to3d
+    if { $protname == "localizer" } {
+      ### skip localizer (usu. a "gre")
+      puts "\n#################################################################"
+      puts "skipping converting localizer scan: $scan (sequence name: $seqname)"
+      puts "#################################################################\n"
+    } elseif { $seqname == "gre" || $seqname == "se" || \
+               $seqname == "tse" || $seqname == "mprage" || \
+               $seqname == "mdeft" || $seqname == "hmdeft" || \
+               $seqname == "tseSP" || $seqname == "cv" || \
+               $seqname == "fmap" || $seqname == "tof" || \
+               $seqname == "sse" || $seqname == "mpm" } {  ;### ADD NEW
+      ### 2D/3D struct scans (include non-localizer gre's) -- simple to3d
+      if { $filenametype == "offline" } {
+        set cmd "to3d -prefix scan${fscan} $name.$fscan.*.$imsuff"
+      }
+      if { $filenametype == "filtrio" || $filenametype == "filtrio2" } {
+        set cmd "to3d -prefix scan${fscan} ${name}_${fscan}_*.$imsuff"
+      }
+      set tmpcmdfile /tmp/TmpCshConvert.[pid]
+      set idcsh [open $tmpcmdfile w 0777]
+      puts $idcsh "setenv AFNI_VERSION_CHECK NO"
+      puts $idcsh "$cmd"
+      close $idcsh
+      puts "###################################################################"
+      puts "running: $cmd"
+      puts "###################################################################"
+      puts "\nsequence dicom name = $seqdname"
+      puts "tSequenceFileName name = $oseqname"
+      puts "scanner protocol name = $protname\n"
+      puts $idnotes "##########################################################"
+      puts $idnotes "running: $cmd"
+      puts $idnotes "##########################################################"
+      puts $idnotes "\nsequence dicom name = $seqdname"
+      puts $idnotes "tSequenceFileName name = $oseqname"
+      puts $idnotes "scanner protocol name = $protname\n"
+      catch { exec csh $tmpcmdfile } ret
+      ### works w/AFNI serve down w/def AFNI_VERSION_CHECK=YES, but to3d run-on
+      #catch { exec csh $tmpcmdfile > /dev/null } ret
+      puts $ret
+      puts $idnotes $ret
+      exec rm $tmpcmdfile
+      lappend outfilelist $outfile
+      set convertedscans($scan) $scans($scan)
+    } elseif { $seqname == "ep2d" || $seqname == "nwmepi" || \
+               $seqname == "dti" || $seqname == "ojmepi" || \
+               $seqname == "almepi" } {  ;### ADD NEW
+      ### functional scans -- to3d with args
+      if { $filenametype == "offline" } {
+        set cmd "to3d -prefix scan${fscan} -time:zt $slices $reps $tr \
+                 $tpattern '$name.$fscan.*.$imsuff'"
+      }
+      if { $filenametype == "filtrio" || $filenametype == "filtrio2" } {
+        set cmd "to3d -prefix scan${fscan} -time:zt $slices $reps $tr \
+                 $tpattern '${name}_${fscan}_*.$imsuff'"
+      }
+      set tmpcmdfile /tmp/TmpCshConvert.[pid]
+      set idcsh [open $tmpcmdfile w 0777]
+      puts $idcsh "setenv AFNI_VERSION_CHECK NO"
+      puts $idcsh "$cmd"
+      close $idcsh
+      puts "###################################################################"
+      puts "running: $cmd"
+      puts "###################################################################"
+      puts "\nsequence dicom name = $seqdname"
+      puts "tSequenceFileName name = $oseqname"
+      puts "scanner protocol name = $protname\n"
+      puts $idnotes "##########################################################"
+      puts $idnotes "running: $cmd"
+      puts $idnotes "##########################################################"
+      puts $idnotes "\nsequence dicom name = $seqdname"
+      puts $idnotes "tSequenceFileName name = $oseqname"
+      puts $idnotes "scanner protocol name = $protname\n"
+      catch { exec csh $tmpcmdfile } ret
+      puts $ret
+      puts $idnotes $ret
+      exec rm $tmpcmdfile
+      lappend outfilelist $outfile
+      set convertedscans($scan) $scans($scan)
+    } else {
+      ### TODO: other seqnames w/different layout (DTi: reps -> dirs)
+      puts "/n#################################################################"
+      puts "skipping converting scan: $scan (sequence name: $seqname)"
+      puts "#################################################################\n"
+    }
+  } ;# foreach scan
+  # move BRIKs into subdir if possible
+  if ![file writable ..] {
+    puts "ima2brik: ### can't create directory $afnidir in $dicomdir"
+    puts "          ### AFNI BRIKs left in $dicomdir"
+  }
+  if ![file exists $afnidir] { exec mkdir $afnidir }
+  # report
+  puts "ima2brik: outfiles generated:\n"
+  puts $idnotes "ima2brik: outfiles generated:\n"
+  foreach outfile $outfilelist {
+    if [file exists $outfile] {
+      puts "  $outfile"
+      puts $idnotes "  $outfile"
+      exec mv $outfile $afnidir
+      exec mv [file rootname $outfile].HEAD $afnidir
+    }
+  }
+  if { [file exists $afnidir] && [llength $outfilelist] } {
+    puts "\nBRIKs moved into $afnidir"
+    puts $idnotes "\nBRIKs moved into $afnidir"
+  }
+  puts ""; puts $idnotes ""
+  close $idnotes
+}
+
+### maybe convert BRIKs to ANALYZE
+if { $outfiletype == "analyze" } {
+  if {$makelinksflag} {
+    cd $outdir
+    if ![file exists $analyzedir] { exec mkdir $analyzedir }
+    cd $outdir/$analyzedir
+  } else {
+    cd $dicomdir
+    if ![file exists $analyzedir] { exec mkdir $analyzedir }
+    cd $dicomdir/$analyzedir
+  }
+  foreach scan [lsort -integer [array names convertedscans]] {
+   if {[info exists selectedscans] && ![string match *$scan* $selectedscans]} {
+      puts "\n############## skipping scan $scan ##############\n"
+      continue
+    }
+    set fscan [format "%02d" $scan]
+    set seqname $seqnames($scan)  ;# not (yet) used
+    if { $moco($scan) } { set mocotype -moco } else { set mocotype "" }
+    set infile ../$afnidir/scan${fscan}+orig.BRIK
+    set outfile scan${fscan}
+    # TOOD: generate outfile name, check if it already exists, skip
+    set cmd "3dAFNItoANALYZE -4D $outfile $infile"
+#xxxxxxx -- mklinks OK to change to ../$logfile? (usu. $logfile .././zzNOTES)
+    exec echo ################################################### >> ../$logfile
+    exec echo $cmd >> ../$logfile
+    exec echo ################################################### >> ../$logfile
+    catch { eval exec $cmd } ret
+    puts $ret
+    exec echo "$ret\n" >> ../$logfile
+  }
+#xxxxxxx -- cp appended zzNOTES into analyzedir
+  # TODO: puts outfile names
+}
+
+### maybe convert BRIKs to NIFTI
+if { $outfiletype == "nifti" } {
+  if {$makelinksflag} {
+    cd $outdir
+    if ![file exists $niftidir] { exec mkdir $niftidir }
+    cd $outdir/$niftidir
+  } else {
+    cd $dicomdir
+    if ![file exists $niftidir] { exec mkdir $niftidir }
+    cd $dicomdir/$niftidir
+  }
+  foreach scan [lsort -integer [array names convertedscans]] {
+   if {[info exists selectedscans] && ![string match *$scan* $selectedscans]} {
+      puts "\n############## skipping scan $scan ##############\n"
+      continue
+    }
+    set fscan [format "%02d" $scan]
+    set seqname $seqnames($scan)  ;# not yet used
+    if { $moco($scan) } { set mocotype -moco } else { set mocotype "" }
+    set infile ../$afnidir/scan${fscan}+orig.BRIK
+    # TODO: generate outfile name, check if it already exists, skip
+    set cmd "3dAFNItoNIFTI $infile"
+#xxxxxxx -- mklinks OK to change to ../$logfile? (usu. $logfile .././zzNOTES)
+    exec echo ################################################### >> ../$logfile
+    exec echo $cmd >> ../$logfile
+    catch { eval exec $cmd } ret
+    puts $ret
+    exec echo "$ret\n" >> ../$logfile
+    if {$rmbriksflag && !$makelinksflag} {
+      # rm BRIK
+      set cmd "rm $infile"
+      exec echo $cmd >> ../$logfile
+      catch { eval exec $cmd } ret
+      puts $ret
+      exec echo "$ret\n" >> ../$logfile
+      # rm HEAD
+      set cmd "rm [file rootname $infile].HEAD"
+      exec echo $cmd >> ../$logfile
+      catch { eval exec $cmd } ret
+      puts $ret
+      exec echo "$ret\n" >> ../$logfile
+    }
+    exec echo ################################################### >> ../$logfile
+  }
+  if {$rmbriksflag && !$makelinksflag} { exec rmdir ../$afnidir }
+#xxxxxxx -- cp appended zzNOTES into analyzedir
+  # TODO: puts outfile names
+}
+
+### cleanup links, dumpscript
+if {$makelinksflag} {
+  cd $outdir
+  puts "ima2brik: removing tmp links"
+  foreach imalink [glob -nocomplain *.$imsuff] {
+    if { [file type $imalink] == "link" } { exec rm -f $imalink }
+  }
+  exec rm -f $dumpscript
+}
+if ![file exists $stimnotes] {
+  puts "done (don't forget to include $stimnotes)"
+} else {
+  puts "done"
+}
