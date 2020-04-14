@@ -191,10 +191,10 @@ for sw in subtitle_ls:
                     # transcript word, if the highest similarity between a subtitle word and the amazon word
                     # it's aligned to is above a threshold (say 90%), use the timing of the amazon word
 
-                    levenshtein_similarity.append(jaro_winkler(sw['setence_words'][i],asw))
+                    levenshtein_similarity.append(jaro_winkler(sw['sentence_words'][i],asw))
                     if len(levenshtein_similarity) == len(aw_stemmed_words_aligned): # if no match after going through
                         # all the words a subtitle word is aligned to
-                        if max(levenshtein_similarity) > 0.9:
+                        if max(levenshtein_similarity) > 0.85:
                             # if the max similarity between the word in the subtitle is not
                             aw_index = int(path_reo[i][1][levenshtein_similarity.index(max(levenshtein_similarity))])
                             to_be_added = [sw['sentence_words'][i], aw_within[aw_index]['start_time'],
