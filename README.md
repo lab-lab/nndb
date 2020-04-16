@@ -1,6 +1,6 @@
-# EBDb project by LAB lab, @UCL
+# NNDb project by LAB lab, @UCL
 
-Welcome to the EBDb project GitHub page. Here you will find information on movie annotations and fMRI preprocessing steps.
+Welcome to the NNDb project GitHub page. Here you will find information on movie annotations and fMRI preprocessing steps.
 
 # Requirements
 To run the preprocessing analysis we have used the AFNI software. Please follow installation guidelines here:
