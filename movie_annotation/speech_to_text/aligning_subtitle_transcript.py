@@ -72,7 +72,7 @@ def duplicates(lst, item):
 
 
 def reorganize_path(dtw_path):
-    path_reorganized = []
+    path_reorganized_1 = []
     if isinstance(dtw_path[0], np.ndarray):
         subtitle_path = dtw_path[0].tolist()
     else:
@@ -81,15 +81,34 @@ def reorganize_path(dtw_path):
         transcript_path = dtw_path[1].tolist()
     else:
         transcript_path = list(dtw_path[1])
-
     for i in subtitle_path:
         if subtitle_path.count(i) == 1:
             transcript_path_to_add = [i,[transcript_path[subtitle_path.index(i)]]]
         else:
             transcript_path_to_add = [i,[transcript_path[i] for i in duplicates(subtitle_path,i)]]
-        if transcript_path_to_add not in path_reorganized:
-            path_reorganized.append(transcript_path_to_add)
-    return path_reorganized
+        if transcript_path_to_add not in path_reorganized_1:
+            path_reorganized_1.append(transcript_path_to_add)
+    # below reorganize the path further to include situations where multiple sentence words aligned to
+    # one transcript words
+    trans_index = []
+    for i in path_reorganized_1:
+        trans_index.append(i[1][0])
+    repeats = []
+    for i in trans_index:
+        if trans_index.count(i) != 1:
+            repeats.append(i)
+    repeats = list(set(repeats))
+    final = []
+    temp = []
+    for item in path_reorganized_1:
+        if item[1][0] in repeats:
+            temp.append(item[0])
+        else:
+            if temp != []:
+                final.append([temp, path_reorganized_1[path_reorganized_1.index(item) - 1][1]])
+                temp = []
+            final.append([[item[0]],item[1]])
+    return final
 
 
 subtitle_ls = []
@@ -127,6 +146,7 @@ estimated_words_continuous_speech = []
 estimated_words_similar_match = []
 count_instance_repeats = 0
 output_table = []
+output_table_as_ls = []
 
 for sw in subtitle_ls:
     # get amazon words with timings starting 0.5 sec before the start time of the sentence and ends 0.5 sec
@@ -159,76 +179,144 @@ for sw in subtitle_ls:
         path_reo = reorganize_path(path)
         #print(path_reo)
         leftovers = []   # container of words that don't have a time tag
+        #print(path_reo)
         for i in range(0,len(path_reo)):
             # for each word in subtitle, create a list of amazon words it is aligned to
             aw_stemmed_words_aligned = [aw_within_pure[int(o)] for o in path_reo[i][1]]
             #print(aw_stemmed_words_aligned)
             levenshtein_similarity = []
-            for asw in aw_stemmed_words_aligned:
-                print(aw_within_pure)
-                print(sw['sentence_words'])
-                print(path_reo)
-                if asw == sw['sentence_words_stemmed'][i]:
-                # print(sw['sentence_words_stemmed'][i])
-                # find the index of the amazon word that matches with the subtitle words, so we can use its timing
-                    aw_index = int(path_reo[i][1][aw_stemmed_words_aligned.index(sw['sentence_words_stemmed'][i])])
-                    to_be_added = [sw['sentence_words'][i], aw_within[aw_index]['start_time'],
-                                   aw_within[aw_index]['end_time']]
+            if len(path_reo[i][0]) == 1:
+                sw_index = int(path_reo[i][0][0])
+                #print(sw_index)
+                for asw in aw_stemmed_words_aligned:
+                    if asw == sw['sentence_words_stemmed'][sw_index]:
+                        #print(asw)
+                    # print(sw['sentence_words_stemmed'][i])
+                    # find the index of the amazon word that matches with the subtitle words, so we can use its timing
+                        aw_index = int(path_reo[i][1][aw_stemmed_words_aligned.index(asw)])
+                        to_be_added = [sw['sentence_words'][sw_index], aw_within[aw_index]['start_time'],
+                                       aw_within[aw_index]['end_time']]
+                        if leftovers != []:
+                            estimating_words(leftovers, sw['start_time'], aw_within[aw_index]['start_time'],
+                                             estimated_words_continuous_speech, estimated_words_with_aws)
+                            sw['start_time'] = aw_within[aw_index]['end_time']
+                            leftovers = []
+                        #print(to_be_added)
+                        if to_be_added not in perfect_words:  # this  line  maybe unnecessary
+                            perfect_words.append(to_be_added)
+                            # transcript_ls.remove(aw_within[aw_index])
+                            output_table.append(sw['sentence_words'][sw_index]+','+aw_within[aw_index]["word"]+','+str(aw_within[aw_index]['start_time'])+','+str(aw_within[aw_index]['end_time'])+','+str(aw_within[aw_index]['end_time']-aw_within[aw_index]['start_time'])+',perfect'+'\n')
+                            output_table_as_ls.append([sw['sentence_words'][sw_index],aw_within[aw_index]["word"],aw_within[aw_index]['start_time'],aw_within[aw_index]['end_time'], aw_within[aw_index]['end_time']-aw_within[aw_index]['start_time'], 'perfect'])
+                        #else:
+                        #    count_instance_repeats += 1
+                    # when finding a word that have an "accurate" timing, see if any words
+                    # before the current word is not aligned, and if there are, estimate their timing. and
+                    # clear the leftovers container
 
 
-                    #print(to_be_added)
-                    if to_be_added not in perfect_words:
-                        perfect_words.append(to_be_added)
-                        # transcript_ls.remove(aw_within[aw_index])
-                        output_table.append(sw['sentence_words'][i]+','+aw_within[aw_index]["word"]+','+str(aw_within[aw_index]['start_time'])+','+str(aw_within[aw_index]['end_time'])+','+str(aw_within[aw_index]['end_time']-aw_within[aw_index]['start_time'])+',perfect'+'\n')
+                        # change the "start time" of the sentence to be used for estimating timings for words not aligned
+
+
+                    # remove words that are perfectly aligned with the subtitle word so it doesn't go into another
+                    # subtitle line
                     else:
-                        count_instance_repeats += 1
-                # when finding a word that have an "accurate" timing, see if any words
-                # before the current word is not aligned, and if there are, estimate their timing. and
-                # clear the leftovers container
-                    if len(leftovers) is not []:
-                        estimating_words(leftovers, sw['start_time'],aw_within[aw_index]['start_time'],
-                                         estimated_words_continuous_speech, estimated_words_with_aws)
-                        leftovers =[]
+                        # if it is not the same, take a record of the similarity between the sentence word and
+                        # transcript word, if the highest similarity between a subtitle word and the amazon word
+                        # it's aligned to is above a threshold (say 90%), use the timing of the amazon word
 
-                    sw['start_time'] = aw_within[aw_index]['end_time']
-                    # change the "start time" of the sentence to be used for estimating timings for words not aligned
+                        levenshtein_similarity.append(jaro(sw['sentence_words_stemmed'][i],asw))
+                        if len(levenshtein_similarity) == len(aw_stemmed_words_aligned):  # when all transcripts words aligned with the subtitle words have their similarity scores calculated
+                            if max(levenshtein_similarity) > 0.6:
+                                # if the max similarity between the word in the subtitle is not
+                                sw_index = int(path_reo[i][0][0])
+                                aw_index = int(path_reo[i][1][levenshtein_similarity.index(max(levenshtein_similarity))])
+                                if leftovers != []:
+                                    print(leftovers)
+                                    estimating_words(leftovers, sw['start_time'], aw_within[aw_index]['start_time'],
+                                                     estimated_words_continuous_speech, estimated_words_with_aws)
+                                    sw['start_time'] = aw_within[aw_index]['end_time']
+                                    leftovers = []
+                                #print(sw)
+                                #print(aw_index)
+                                to_be_added = [sw['sentence_words'][sw_index], aw_within[aw_index]['start_time'],
+                                               aw_within[aw_index]['end_time']]
+                                output_table.append(sw['sentence_words'][sw_index] + ',' + aw_within[aw_index]["word"] + ',' + str(aw_within[aw_index]['start_time']) + ',' + str(aw_within[aw_index]['end_time'])+ ','+str(aw_within[aw_index]['end_time'] - aw_within[aw_index]['start_time'])+',similar'+'\n')
+                                output_table_as_ls.append([sw['sentence_words'][sw_index],aw_within[aw_index]["word"],aw_within[aw_index]['start_time'],  aw_within[aw_index]['end_time'], aw_within[aw_index]['end_time'] - aw_within[aw_index]['start_time'],'similar'])
+                                estimated_words_similar_match.append(to_be_added)
+                                # print([aw_within[aw_index]['word'],sw['sentence_words'][i]])
+                                # same as above
 
+                            # if subtitle word not matched with anything, make record of it.
 
-                # remove words that are perfectly aligned with the subtitle word so it doesn't go into another
-                # subtitle line
-                else:
-                    # if it is not the same, take a record of the similarity between the sentence word and
-                    # transcript word, if the highest similarity between a subtitle word and the amazon word
-                    # it's aligned to is above a threshold (say 90%), use the timing of the amazon word
+                            else:
+                                leftovers.append(sw['sentence_words'][sw_index])
 
-                    levenshtein_similarity.append(jaro(sw['sentence_words'][i],asw))
-                    if len(levenshtein_similarity) == len(aw_stemmed_words_aligned): # if no match after going through
-                        # all the words a subtitle word is aligned to
-                        if max(levenshtein_similarity) > 0.6:
-                            # if the max similarity between the word in the subtitle is not
-                            aw_index = int(path_reo[i][1][levenshtein_similarity.index(max(levenshtein_similarity))])
-                            to_be_added = [sw['sentence_words'][i], aw_within[aw_index]['start_time'],
-                                           aw_within[aw_index]['end_time']]
-                            output_table.append(sw['sentence_words'][i] + ',' + aw_within[aw_index]["word"] + ',' + str(aw_within[aw_index]['start_time']) + ',' + str(aw_within[aw_index]['end_time'])+ ','+str(aw_within[aw_index]['end_time'] - aw_within[aw_index]['start_time'])+',similar'+'\n')
-                            estimated_words_similar_match.append(to_be_added)
-                            # print([aw_within[aw_index]['word'],sw['sentence_words'][i]])
-                            # same as above
-                            if len(leftovers) is not []:
+            # if multiple subtitle words are aligned to one transcript word, estimate the timing based on the match:
+            # if one & only one word is matched perfectly with the transcript word, take its timing and estimate the rest
+            # if no perfect match but have "similar" match, use the timing of the most similar and estimate the rest
+            # if none of the above, estimate all
+            # how can i simplify it?
+
+            else:
+                sw_indexes = [y for y in path_reo[i][0]]
+                sw_words_stemmed = [sw['sentence_words_stemmed'][index] for index in sw_indexes]
+                sw_words = [sw['sentence_words'][index] for index in sw_indexes]
+                print(sw_words)
+                aw_index = path_reo[i][1][0]
+                aw = aw_within[aw_index]["word_stemmed"]
+                print(aw)
+                perfect_w = [w for w in sw_words_stemmed if w == aw]
+                for words in sw_words_stemmed:
+                    levenshtein_similarity.append(jaro(words,aw))
+                print(levenshtein_similarity)
+
+################  should we use stemming when comparing similarity? #########################
+                if len(perfect_w) > 1 or (len(perfect_w) == 0 and max(levenshtein_similarity)<.6):
+                    for w in sw_words:
+                        leftovers.append(w)
+                # if more than one perfect matches estimate all
+
+                elif len(perfect_w) == 1:
+                    for index in sw_indexes:
+                        if sw['sentence_words_stemmed'][index] in perfect_w:
+                            if leftovers != []:
                                 estimating_words(leftovers, sw['start_time'], aw_within[aw_index]['start_time'],
                                                  estimated_words_continuous_speech, estimated_words_with_aws)
+                                sw['start_time'] = aw_within[aw_index]['end_time']
                                 leftovers = []
-                        # if subtitle word not matched with anything, make record of it.
 
+                            to_be_added = [sw['sentence_words'][index], aw_within[aw_index]['start_time'],
+                                           aw_within[aw_index]['end_time']]
+                            perfect_words.append(to_be_added)
                         else:
-                            leftovers.append(sw['sentence_words'][i])
+                            leftovers.append(sw['sentence_words'][index])
+                # if only one perfect match use its timing and estimate others
+
+                elif len(perfect_w) == 0:
+                        sw_index = sw_indexes[levenshtein_similarity.index(max(levenshtein_similarity))]
+                        for index in sw_indexes:
+                            if index == sw_index:
+                                #print(leftovers)
+                                if leftovers != []:
+                                    estimating_words(leftovers, sw['start_time'], aw_within[aw_index]['start_time'],
+                                                     estimated_words_continuous_speech, estimated_words_with_aws)
+                                    sw['start_time'] = aw_within[aw_index]['end_time']
+                                    leftovers = []
+                                to_be_added = [sw['sentence_words'][sw_index], aw_within[aw_index]['start_time'],
+                                               aw_within[aw_index]['end_time']]
+                                estimated_words_similar_match.append(to_be_added)
+                            else:
+                                leftovers.append(sw['sentence_words'][index])
+
+###can be simplified a lot
 
             if i == len(path_reo)-1:
                 # at the end of a subtitle line, check if any words still left not estimated, if so estimate based on
                 # start_time (= end time of the previously aligned word), and end time of sentence.
-                if len(leftovers) is not []:
+                if len(leftovers) != []:
                     estimating_words(leftovers, sw['start_time'], sw['end_time'],
                                      estimated_words_continuous_speech, estimated_words_with_aws)
+
                     leftovers = []
 
 
@@ -242,11 +330,36 @@ for sw in subtitle_ls:
 
 for words in estimated_words:
     output_table.append(words[0]+', ,'+str(words[1])+','+str(words[2])+','+str(words[2]-words[1])+',complete_est\n')
+    output_table_as_ls.append([words[0], '', words[1], words[2],str(words[2]-words[1]),'complete_est'])
 for words in estimated_words_continuous_speech:
+    output_table_as_ls.append([words[0], '', words[1], words[2],str(words[2]-words[1]),'continuous'])
     output_table.append(words[0]+', ,'+str(words[1])+','+str(words[2])+','+str(words[2]-words[1])+',continuous\n')
 for words in estimated_words_with_aws:
+    output_table_as_ls.append([words[0], '', words[1], words[2],str(words[2]-words[1]),'part_est'])
     output_table.append(words[0]+', ,'+str(words[1])+','+str(words[2])+','+str(words[2]-words[1])+',part_est\n')
 
 with open('output_table.txt','w') as f:
     for rows in output_table:
         f.write(rows)
+
+
+
+freq_perfect = 0
+freq_similar = 0
+freq_est_part = 0
+freq_est_cont = 0
+freq_est_all = 0
+
+for ls in output_table_as_ls:
+    if ls[5] == 'perfect':
+        freq_perfect+=1
+    elif ls[5] =='continuous':
+        freq_est_cont +=1
+    elif ls[5] =='similar':
+        freq_similar += 1
+    elif ls[5] == 'complete_est':
+        freq_est_all +=1
+    elif ls[5] == 'part_est':
+        freq_est_part+=1
+
+total = sum([freq_est_all, freq_est_cont, freq_est_part, freq_perfect,freq_similar])
