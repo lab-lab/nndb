@@ -9,6 +9,8 @@ import numpy as np
 from nltk.metrics.distance import edit_distance
 from Levenshtein import *
 import xlsxwriter
+from nltk.corpus import stopwords
+stopwords = set(stopwords.words('english'))
 
 #movie_name = input("movie name:")
 movie_name = 'citizenfour'
@@ -43,48 +45,49 @@ def process_sentence(sentence):
 ps = PorterStemmer()
 
 
-def guessing_words_fuc(list_of_words, start, end, container):
+def guessing_words_fuc(list_of_words, start, end, container, adjusted=False):
     dur_chunck = end-start
     sum_wordlen = sum(len(a) for a in list_of_words)
     for word in list_of_words:
         dur_word = dur_chunck*(len(word)/sum_wordlen)
-        output_word = [word,start,start+dur_word]
+        if adjusted == True:
+            output_word = [word,start,start+dur_word,'partial_adjusted']
+        else:
+            output_word = [word,start,start+dur_word,'partial']
         start = start+dur_word
         container.append(output_word)
+
 # given the start time and end time of a list of words, estimate the st and et of each word based on letter length
 
 
-def estimating_words(leftover, start, end, container_cont, container_est, within = True): # within: True if we're
-    # estimating based on the start time
+def estimating_words(leftover, start, end, container_cont, container_est, container_adjusted, within=True):
+    # within: True if we're estimating based on the start time i.e. a word is matched/similar
     if leftover !=[]:
-        if start > end:
+        if start < end:
             if len(leftover) == 1:
                 container_cont.append([leftover[0],start,end])
             else:
                 guessing_words_fuc(leftover, start, end, container_est)
-        elif start<end:  # if word has negative timing
+        elif start > end:  # if word has negative timing
             if within:   # most of the cases..
                 if len(leftover) == 1:
-                    container_cont.append([leftover[0], end-0.05*len(leftover[0]), end])
+                    container_adjusted.append([leftover[0], end-0.03*len(leftover[0]), end])
                 else:
                     total_letters = ''
                     for word_l in leftover:
                         total_letters += word_l
-                    guessing_words_fuc(leftover, end-0.05*len(total_letters), end, container_est)
+                    guessing_words_fuc(leftover, end-0.03*len(total_letters), end, container_adjusted)
             else:
         # another way we get negative timing is when the end time of the script is inaccurate and we used it to estimate
         # the last bits of subtitle line
                 if len(leftover) == 1:
-                    container_cont.append([leftover[0], start, end+0.05*len(leftover[0])])
+                    container_cont.append([leftover[0], start, start+0.03*len(leftover[0])])
 
                 else:
                     total_letters = ''
                     for word_l in leftover:
                         total_letters += word_l
-                    guessing_words_fuc(leftover, start, end+0.05*len(total_letters), container_est)
-
-
-
+                    guessing_words_fuc(leftover, start, start+0.03*len(total_letters), container_est)
     return []
 
 
@@ -174,10 +177,11 @@ for transcript_items in transcript['results']['items']:
                                   "word_stemmed": ps.stem(word.lower())})
 
 estimated_words = []  # words estimated from just subtitle start&end time, and letter length
-perfect_words = []  # perfectly matched words (where timing and word are the same in aws and subtitle)
+matched_words = []  # perfectly matched words (where timing and word are the same in aws and subtitle)
 estimated_words_with_aws = []  # words
 estimated_words_continuous_speech = []
 estimated_words_similar_match = []
+estimated_words_adjusted = []
 count_instance_repeats = 0
 perf2 = 0
 output_table = []
@@ -229,19 +233,20 @@ for sw in subtitle_ls:
                     if aw_within[aw_index]['word_stemmed'] == sw['sentence_words_stemmed'][sw_index]:
                         to_be_added = [sw['sentence_words'][sw_index], aw_within[aw_index]['start_time'],
                                        aw_within[aw_index]['end_time']]
-                        if to_be_added not in perfect_words:
+                        if to_be_added not in matched_words:
                             matched = True
                             leftovers = estimating_words(leftovers, sw['start_time'], aw_within[aw_index]['start_time'],
-                                                         estimated_words_continuous_speech, estimated_words_with_aws)
+                                                         estimated_words_continuous_speech, estimated_words_with_aws,
+                                                         estimated_words_adjusted)
                             # when finding a word that have an "accurate" timing, see if any words
                             # before the current word is not aligned, and if there are, estimate their timing and
                             # clear the "leftovers" container
                             sw['start_time'] = aw_within[aw_index]['end_time']
                             # change the start time of the sentence to the end time of accurate words, for the
                             # estimation of future left-overs
-                            perfect_words.append(to_be_added)
+                            matched_words.append(to_be_added)
                             # transcript_ls.remove(aw_within[aw_index])
-                            output_table_as_ls.append([sw['sentence_words'][sw_index],aw_within[aw_index]["word"],aw_within[aw_index]['start_time'],aw_within[aw_index]['end_time'], aw_within[aw_index]['end_time']-aw_within[aw_index]['start_time'], 'perfect'])
+                            output_table_as_ls.append([sw['sentence_words'][sw_index],aw_within[aw_index]["word"],aw_within[aw_index]['start_time'],aw_within[aw_index]['end_time'], aw_within[aw_index]['end_time']-aw_within[aw_index]['start_time'], 'matched'])
                             break
 
                         # stops once the first match identified to avoid including other timings for the same word.
@@ -249,8 +254,6 @@ for sw in subtitle_ls:
                         #  that happen later could be the right timing instead)
                         # stop the [sw,aw] pair if there's perfect match
 
-                    # remove words that are perfectly aligned with the subtitle word so it doesn't go into another
-                    # subtitle line
                         # if it is not the same, take a record of the similarity between the sentence word and
                         # transcript word, if the highest similarity between a subtitle word and the amazon word
                         # it's aligned to is above a threshold use the timing of the amazon word
@@ -259,10 +262,10 @@ for sw in subtitle_ls:
                     aw_index = int(amazon_word_indexes[levenshtein_similarity.index(max(levenshtein_similarity))])
                     to_be_added = [sw['sentence_words'][sw_index], aw_within[aw_index]['start_time'],
                                            aw_within[aw_index]['end_time']]
-                    if to_be_added not in estimated_words_similar_match:
+                    if to_be_added not in (estimated_words_similar_match and matched_words):
                         matched = True
                         leftovers = estimating_words(leftovers, sw['start_time'], aw_within[aw_index]['start_time'],
-                                                     estimated_words_continuous_speech, estimated_words_with_aws)
+                                                     estimated_words_continuous_speech, estimated_words_with_aws, estimated_words_adjusted)
                         sw['start_time'] = aw_within[aw_index]['end_time']
                         estimated_words_similar_match.append(to_be_added)
                         output_table_as_ls.append([sw['sentence_words'][sw_index],aw_within[aw_index]["word"],aw_within[aw_index]['start_time'],  aw_within[aw_index]['end_time'], aw_within[aw_index]['end_time'] - aw_within[aw_index]['start_time'],'similar'])
@@ -275,31 +278,32 @@ for sw in subtitle_ls:
             # if one & only one word is matched perfectly with the transcript word, take its timing and estimate the rest
             # if no perfect match but have "similar" match, use the timing of the most similar and estimate the rest
             # if none of the above, estimate all
-            # how can i simplify it?
 
             else:
-                aw_index = amazon_word_indexes[0]# a counter of no. of perfectly matched word
-                perfect_w = [sw['sentence_words_stemmed'][j] for j in sentence_word_indexes
+                aw_index = amazon_word_indexes[0]
+                # a counter of no. of perfectly matched word
+                matched_w = [sw['sentence_words_stemmed'][j] for j in sentence_word_indexes
                              if aw_within[aw_index]['word_stemmed'] == sw['sentence_words_stemmed'][j]]
 
                 # if more than one perfect matches/no perfect match and max similarity <.6, estimate all
-                if len(perfect_w) > 1 or (len(perfect_w) == 0 and max(levenshtein_similarity)<.6):
+                if len(matched_w) > 1 or (len(matched_w) == 0 and max(levenshtein_similarity)<.6):
                     for sw_index in sentence_word_indexes:
                         leftovers.append(sw['sentence_words'][sw_index])
 
                 # if only one perfect match use its timing and estimate others
-                elif len(perfect_w) == 1:
+                elif len(matched_w) == 1:
                     for sw_index in sentence_word_indexes:
-                        if sw['sentence_words_stemmed'][sw_index] in perfect_w:
+                        if sw['sentence_words_stemmed'][sw_index] in matched_w:
                             to_be_added = [sw['sentence_words'][sw_index], aw_within[aw_index]['start_time'],
                                            aw_within[aw_index]['end_time']]
-                            if to_be_added not in perfect_words:
+                            if to_be_added not in matched_words:
                                 leftovers = estimating_words(leftovers, sw['start_time'], aw_within[aw_index]['start_time'],
-                                                             estimated_words_continuous_speech, estimated_words_with_aws)
+                                                             estimated_words_continuous_speech, estimated_words_with_aws,
+                                                             estimated_words_adjusted)
                                 sw['start_time'] = aw_within[aw_index]['end_time']
 
-                                perfect_words.append(to_be_added)
-                                output_table_as_ls.append([sw['sentence_words'][sw_index], aw_within[aw_index]["word"],aw_within[aw_index]['start_time'],aw_within[aw_index]['end_time'],aw_within[aw_index]['end_time'] - aw_within[aw_index]['start_time'], 'perfect'])
+                                matched_words.append(to_be_added)
+                                output_table_as_ls.append([sw['sentence_words'][sw_index], aw_within[aw_index]["word"],aw_within[aw_index]['start_time'],aw_within[aw_index]['end_time'],aw_within[aw_index]['end_time'] - aw_within[aw_index]['start_time'], 'matched'])
 
                         else:
                             leftovers.append(sw['sentence_words'][sw_index])
@@ -307,15 +311,15 @@ for sw in subtitle_ls:
                 # if no perfect match but max similarity > .6 gives the timing to the subtitle word with
                 # highest similarity and estimate the rest
 
-                elif len(perfect_w) == 0:
+                elif len(matched_w) == 0:
                     most_similar_index = sentence_word_indexes[levenshtein_similarity.index(max(levenshtein_similarity))]
                     for sw_index in sentence_word_indexes:
                         if sw_index == most_similar_index:
                             to_be_added = [sw['sentence_words'][sw_index], aw_within[aw_index]['start_time'],
                                            aw_within[aw_index]['end_time']]
-                            if to_be_added not in estimated_words_similar_match:
+                            if to_be_added not in (estimated_words_similar_match and matched_words):
                                 leftovers = estimating_words(leftovers, sw['start_time'], aw_within[aw_index]['start_time'],
-                                                 estimated_words_continuous_speech, estimated_words_with_aws)
+                                                 estimated_words_continuous_speech, estimated_words_with_aws, estimated_words_adjusted)
                                 sw['start_time'] = aw_within[aw_index]['end_time']
                                 estimated_words_similar_match.append(to_be_added)
                                 output_table_as_ls.append([sw['sentence_words'][sw_index],aw_within[aw_index]["word"], aw_within[aw_index]['start_time'],  aw_within[aw_index]['end_time'], aw_within[aw_index]['end_time'] - aw_within[aw_index]['start_time'],'similar'])
@@ -327,7 +331,8 @@ for sw in subtitle_ls:
                 # at the end of a subtitle line, check if any words still left not estimated, if so estimate based on
                 # start_time (= end time of the previously aligned word), and end time of sentence.
                 leftovers = estimating_words(leftovers, sw['start_time'], sw['end_time'],
-                                 estimated_words_continuous_speech, estimated_words_with_aws)
+                                             estimated_words_continuous_speech, estimated_words_with_aws,
+                                             estimated_words_adjusted, False)
 
 
 
@@ -340,13 +345,16 @@ for sw in subtitle_ls:
 
 
 for words in estimated_words:
-    output_table_as_ls.append([words[0], '', words[1], words[2],float(words[2]-words[1]),'complete_est'])
+    output_table_as_ls.append([words[0], '', words[1], words[2],float(words[2]-words[1]),'full'])
 for words in estimated_words_continuous_speech:
     output_table_as_ls.append([words[0], '', words[1], words[2],float(words[2]-words[1]),'continuous'])
 for words in estimated_words_with_aws:
-    output_table_as_ls.append([words[0], '', words[1], words[2],float(words[2]-words[1]),'part_est'])
+    output_table_as_ls.append([words[0], '', words[1], words[2],float(words[2]-words[1]),'partial'])
+for words in estimated_words_adjusted:
+    output_table_as_ls.append([words[0], '', words[1], words[2],float(words[2]-words[1]),'adjusted'])
 
-#  order words in the occurrence
+
+#  order words in the onset time
 def ordering_words(word_list):
     ls_of_st = []
     output_ls = []
@@ -361,39 +369,73 @@ def ordering_words(word_list):
     return output_ls
 
 
-output_table_as_ls = ordering_words(output_table_as_ls)
+# output_table_as_ls = ordering_words(output_table_as_ls)
 
 
+#  remove words with repeated timings
+for row in output_table_as_ls:
+    row_index = output_table_as_ls.index(row)
+    if row_index != len(output_table_as_ls) - 1:
+        next_row = output_table_as_ls[row_index+1]
+        if row[2] == next_row[2] and row[3] == next_row[3]:
+            # same start time & end time for current & next words i.e. timing repeated
+            if row[5] == 'matched':
+                output_table_as_ls.remove(next_row)
+            else:
+                output_table_as_ls.remove(row)
+row_index_shifted = []
+#   correct timing for remaining words
+for row in output_table_as_ls:
+    row_index = output_table_as_ls.index(row)
+    if row_index != len(output_table_as_ls) - 1:
+        next_row = output_table_as_ls[row_index + 1]
+        if row[3] > next_row[2]:
+            # end time of word > start of next word. i.e. there's overlap
+            if row[5] != 'matched' and next_row[5] == 'matched':
+                row[3] = next_row[2]
+                row_index_shifted.append(row_index)
+                # if the word after is matched, use onset of next word as offset of current word
+            else:
+                next_row[2] = row[3]
+                row_index_shifted.append(row_index+1)
+                # otherwise set the onset of next word, use offset of current word as onset of next word
+        row[4] = row[3]-row[2]
 
-freq_perfect = 0
+
+freq_matched = 0
 freq_similar = 0
 freq_est_part = 0
 freq_est_cont = 0
 freq_est_all = 0
-sum_duration_perfect = 0
-sum_duration_continuous =0
-sum_duration_similar =0
+freq_est_adj = 0
+sum_duration_matched = 0
+sum_duration_continuous = 0
+sum_duration_similar = 0
 sum_duration_complete = 0
 sum_duration_partial = 0
+sum_duration_adjusted = 0
 
 for ls in output_table_as_ls:
-    if ls[5] == 'perfect':
-        freq_perfect+=1
-        sum_duration_perfect += ls[4]
-    elif ls[5] =='continuous':
+    if ls[5] == 'matched':
+        freq_matched+=1
+        sum_duration_matched += ls[4]
+    elif ls[5] == 'continuous':
         freq_est_cont +=1
         sum_duration_continuous +=ls[4]
-    elif ls[5] =='similar':
+    elif ls[5] == 'similar':
         freq_similar += 1
         sum_duration_similar+=ls[4]
-    elif ls[5] == 'complete_est':
+    elif ls[5] == 'full':
         freq_est_all +=1
         sum_duration_complete+=ls[4]
-    elif ls[5] == 'part_est':
+    elif ls[5] == 'partial':
         freq_est_part+=1
         sum_duration_partial+=ls[4]
+    elif ls[5] == 'adjusted':
+        freq_est_adj +=1
+        sum_duration_adjusted += ls[4]
 
-total = sum([freq_est_all, freq_est_cont, freq_est_part, freq_perfect,freq_similar])
+total = sum([freq_est_all, freq_est_cont, freq_est_part, freq_matched,freq_similar])
 workbook = xlsxwriter.Workbook('word_timing.xlsx')
 worksheet1 = workbook.add_worksheet('timing')
 worksheet2 = workbook.add_worksheet('descriptive_stats')
@@ -408,7 +450,16 @@ worksheet1.write(0,5,"type")
 worksheet1.write(0,6,"start_time_new")
 worksheet1.write(0,7,"end_time_new")
 worksheet1.write(0,8,"interval_new")
+worksheet1.write(0,9,"word_length")
+worksheet1.write(0,10,"stopwords")
+worksheet1.write(0,11,"shifted")
+
+intemp = 0
 for sub_word,trans_word,st,et,interval,typematch in output_table_as_ls:
+    if sub_word in stopwords:
+        function_word = "function"
+    else:
+        function_word = "not_function"
     worksheet1.write(row, col, sub_word)
     worksheet1.write(row, col+1, trans_word)
     worksheet1.write(row, col+2, st)
@@ -416,25 +467,35 @@ for sub_word,trans_word,st,et,interval,typematch in output_table_as_ls:
     worksheet1.write(row, col+4, interval)
     worksheet1.write(row, col+5, typematch)
     worksheet1.write(row, col+6, st)
-    if typematch=='complete_est' and interval > 1 and len(sub_word)<10:
-        worksheet1.write(row,col+7, st+0.6)
-        worksheet1.write(row, col + 8, 0.6)
-    elif typematch=='complete_est' and interval > 2 and len(sub_word) > 10:
-        worksheet1.write(row, col + 7, st+1)
-        worksheet1.write(row, col + 8, 1)
+    # if word is estimated and meet the following criteria, truncate accordingly and add to the last column
+    if (typematch == 'complete_est' or 'part_est') and interval > 1 and len(sub_word)<10:
+        et_new = st+0.6
+        dur_new = 0.6
+    elif (typematch == 'complete_est' or 'part_est') and interval > 2 and len(sub_word) > 10:
+        et_new = st+1
+        dur_new = 1
     else:
-        worksheet1.write(row, col + 7, st)
-        worksheet1.write(row, col + 8, interval)
+        et_new = et
+        dur_new = interval
+    worksheet1.write(row, col + 7, et_new)
+    worksheet1.write(row, col + 8, dur_new)
+    worksheet1.write(row, col+9, len(sub_word))
+    worksheet1.write(row, col + 10, function_word)
 
-    row +=1
+    if intemp in row_index_shifted:
+        worksheet1.write(row, col + 11, "shifted")
+    else:
+        worksheet1.write(row, col + 11, "not_shifted")
+    intemp += 1
+    row += 1
 
 
-
-summary_stats= [['matches',freq_perfect,freq_perfect/total,sum_duration_perfect/freq_perfect],
-               ['similarity',freq_similar, freq_similar/total,sum_duration_similar/freq_similar],
-               ['complete',freq_est_all, freq_est_all/total, sum_duration_complete/freq_est_all],
+summary_stats = [['matches',freq_matched,freq_matched/total,sum_duration_matched/freq_matched],
+                ['similarity',freq_similar, freq_similar/total,sum_duration_similar/freq_similar],
+                ['complete',freq_est_all, freq_est_all/total, sum_duration_complete/freq_est_all],
                 ['continuous',freq_est_cont,freq_est_cont/total,sum_duration_continuous/freq_est_cont],
-                ['partial',freq_est_part,freq_est_part/total,sum_duration_partial/freq_est_part]]
+                ['partial',freq_est_part,freq_est_part/total,sum_duration_partial/freq_est_part],
+                ['adjusted',freq_est_adj,freq_est_adj/total, sum_duration_adjusted/freq_est_part]]
 
 row,column =1,0
 worksheet2.write(0,0,"type")
