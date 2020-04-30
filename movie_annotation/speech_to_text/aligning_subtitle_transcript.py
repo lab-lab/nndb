@@ -45,38 +45,39 @@ def process_sentence(sentence):
 ps = PorterStemmer()
 
 
-def guessing_words_fuc(list_of_words, start, end, container, adjusted=False):
+def guessing_words_fuc(list_of_words, start, end, container, output_table_s, type):
     dur_chunck = end-start
     sum_wordlen = sum(len(a) for a in list_of_words)
     for word in list_of_words:
         dur_word = dur_chunck*(len(word)/sum_wordlen)
-        if adjusted == True:
-            output_word = [word,start,start+dur_word,'partial_adjusted']
-        else:
-            output_word = [word,start,start+dur_word,'partial']
+        output_word = [word,start,start+dur_word,type]
+        ow = [word, '',start,start+dur_word,dur_word,type]
         start = start+dur_word
         container.append(output_word)
+        output_table_s.append(ow)
 
 # given the start time and end time of a list of words, estimate the st and et of each word based on letter length
 
 
-def estimating_words(leftover, start, end, container_cont, container_est, container_adjusted, within=True):
+def estimating_words(leftover, start, end, container_cont, container_est, container_adjusted, output_table, within=True):
     # within: True if we're estimating based on the start time i.e. a word is matched/similar
     if leftover !=[]:
         if start < end:
             if len(leftover) == 1:
-                container_cont.append([leftover[0],start,end])
+                container_cont.append([leftover[0],start,end,'continuous'])
+                output_table.append([leftover[0],'',start,end,end-start,'continuous'])
             else:
-                guessing_words_fuc(leftover, start, end, container_est)
+                guessing_words_fuc(leftover, start, end, container_est, output_table,'partial')
         elif start > end:  # if word has negative timing
             if within:   # most of the cases..
                 if len(leftover) == 1:
                     container_adjusted.append([leftover[0], end-0.03*len(leftover[0]), end])
+                    output_table.append([leftover[0],'', end-0.03*len(leftover[0]), end,0.03*len(leftover[0]),'continuous_adjusted'])
                 else:
                     total_letters = ''
                     for word_l in leftover:
                         total_letters += word_l
-                    guessing_words_fuc(leftover, end-0.03*len(total_letters), end, container_adjusted)
+                    guessing_words_fuc(leftover, end-0.03*len(total_letters), end, container_adjusted, output_table, 'partial_adjusted')
             else:
         # another way we get negative timing is when the end time of the script is inaccurate and we used it to estimate
         # the last bits of subtitle line
@@ -87,7 +88,7 @@ def estimating_words(leftover, start, end, container_cont, container_est, contai
                     total_letters = ''
                     for word_l in leftover:
                         total_letters += word_l
-                    guessing_words_fuc(leftover, start, start+0.03*len(total_letters), container_est)
+                    guessing_words_fuc(leftover, start, start+0.03*len(total_letters), container_est, output_table, "partial_adjusted")
     return []
 
 
@@ -202,9 +203,10 @@ for sw in subtitle_ls:
     # maybe worth removing lyrics from the subtitle or do it separately because for lyrics it seems occasions where
     # amazon didn't get anything is quite common.
     if aw_within == []:
-        guessing_words_fuc(sw['sentence_words'], sw['start_time'], sw['end_time'], estimated_words)
+        guessing_words_fuc(sw['sentence_words'], sw['start_time'], sw['end_time'], estimated_words, output_table_as_ls, 'full')
 
     else:
+
         # dtw
         # acm = accumulated cost matrix, use path here
         distance,cost,acm,path = accelerated_dtw(np.array(sw['sentence_words_stemmed']), np.array(aw_within_stemmed_words),
@@ -237,7 +239,7 @@ for sw in subtitle_ls:
                             matched = True
                             leftovers = estimating_words(leftovers, sw['start_time'], aw_within[aw_index]['start_time'],
                                                          estimated_words_continuous_speech, estimated_words_with_aws,
-                                                         estimated_words_adjusted)
+                                                         estimated_words_adjusted,output_table_as_ls)
                             # when finding a word that have an "accurate" timing, see if any words
                             # before the current word is not aligned, and if there are, estimate their timing and
                             # clear the "leftovers" container
@@ -265,7 +267,7 @@ for sw in subtitle_ls:
                     if to_be_added not in (estimated_words_similar_match and matched_words):
                         matched = True
                         leftovers = estimating_words(leftovers, sw['start_time'], aw_within[aw_index]['start_time'],
-                                                     estimated_words_continuous_speech, estimated_words_with_aws, estimated_words_adjusted)
+                                                     estimated_words_continuous_speech, estimated_words_with_aws, estimated_words_adjusted,output_table_as_ls)
                         sw['start_time'] = aw_within[aw_index]['end_time']
                         estimated_words_similar_match.append(to_be_added)
                         output_table_as_ls.append([sw['sentence_words'][sw_index],aw_within[aw_index]["word"],aw_within[aw_index]['start_time'],  aw_within[aw_index]['end_time'], aw_within[aw_index]['end_time'] - aw_within[aw_index]['start_time'],'similar'])
@@ -299,7 +301,7 @@ for sw in subtitle_ls:
                             if to_be_added not in matched_words:
                                 leftovers = estimating_words(leftovers, sw['start_time'], aw_within[aw_index]['start_time'],
                                                              estimated_words_continuous_speech, estimated_words_with_aws,
-                                                             estimated_words_adjusted)
+                                                             estimated_words_adjusted,output_table_as_ls)
                                 sw['start_time'] = aw_within[aw_index]['end_time']
 
                                 matched_words.append(to_be_added)
@@ -319,7 +321,7 @@ for sw in subtitle_ls:
                                            aw_within[aw_index]['end_time']]
                             if to_be_added not in (estimated_words_similar_match and matched_words):
                                 leftovers = estimating_words(leftovers, sw['start_time'], aw_within[aw_index]['start_time'],
-                                                 estimated_words_continuous_speech, estimated_words_with_aws, estimated_words_adjusted)
+                                                 estimated_words_continuous_speech, estimated_words_with_aws, estimated_words_adjusted, output_table_as_ls)
                                 sw['start_time'] = aw_within[aw_index]['end_time']
                                 estimated_words_similar_match.append(to_be_added)
                                 output_table_as_ls.append([sw['sentence_words'][sw_index],aw_within[aw_index]["word"], aw_within[aw_index]['start_time'],  aw_within[aw_index]['end_time'], aw_within[aw_index]['end_time'] - aw_within[aw_index]['start_time'],'similar'])
@@ -332,7 +334,7 @@ for sw in subtitle_ls:
                 # start_time (= end time of the previously aligned word), and end time of sentence.
                 leftovers = estimating_words(leftovers, sw['start_time'], sw['end_time'],
                                              estimated_words_continuous_speech, estimated_words_with_aws,
-                                             estimated_words_adjusted, False)
+                                             estimated_words_adjusted, output_table_as_ls,False)
 
 
 
@@ -344,14 +346,14 @@ for sw in subtitle_ls:
     # if the sentence word is aligned with 1/more transcript words, use the start of the first words it is aligned to and end ti
 
 
-for words in estimated_words:
-    output_table_as_ls.append([words[0], '', words[1], words[2],float(words[2]-words[1]),'full'])
-for words in estimated_words_continuous_speech:
-    output_table_as_ls.append([words[0], '', words[1], words[2],float(words[2]-words[1]),'continuous'])
-for words in estimated_words_with_aws:
-    output_table_as_ls.append([words[0], '', words[1], words[2],float(words[2]-words[1]),'partial'])
-for words in estimated_words_adjusted:
-    output_table_as_ls.append([words[0], '', words[1], words[2],float(words[2]-words[1]),'adjusted'])
+#for words in estimated_words:
+#    output_table_as_ls.append([words[0], '', words[1], words[2],float(words[2]-words[1]),'full'])
+#for words in estimated_words_continuous_speech:
+#    output_table_as_ls.append([words[0], '', words[1], words[2],float(words[2]-words[1]),'continuous'])
+#for words in estimated_words_with_aws:
+#    output_table_as_ls.append([words[0], '', words[1], words[2],float(words[2]-words[1]),'partial'])
+#for words in estimated_words_adjusted:
+#    output_table_as_ls.append([words[0], '', words[1], words[2],float(words[2]-words[1]),'adjusted'])
 
 
 #  order words in the onset time
@@ -369,7 +371,7 @@ def ordering_words(word_list):
     return output_ls
 
 
-# output_table_as_ls = ordering_words(output_table_as_ls)
+output_table_as_ls = ordering_words(output_table_as_ls)
 
 
 #  remove words with repeated timings
@@ -431,7 +433,7 @@ for ls in output_table_as_ls:
     elif ls[5] == 'partial':
         freq_est_part+=1
         sum_duration_partial+=ls[4]
-    elif ls[5] == 'adjusted':
+    elif ls[5] == 'partial_adjusted' or ls[5] == 'continuous_adjusted':
         freq_est_adj +=1
         sum_duration_adjusted += ls[4]
 
