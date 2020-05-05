@@ -59,9 +59,12 @@ def guessing_words_fuc(list_of_words, start, end, container, output_table_s, typ
 # given the start time and end time of a list of words, estimate the st and et of each word based on letter length
 
 
-def estimating_words(leftover, start, end, container_cont, container_est, container_adjusted, output_table, within=True):
+def estimating_words(leftovers, container_cont, container_est, container_adjusted, output_table, within=True):
     # within: True if we're estimating based on the start time i.e. a word is matched/similar
+    leftover = leftovers['words']
     if leftover !=[]:
+        start = leftovers['start']
+        end = leftovers['end']
         if start < end:
             if len(leftover) == 1:
                 container_cont.append([leftover[0],start,end,'continuous'])
@@ -79,6 +82,8 @@ def estimating_words(leftover, start, end, container_cont, container_est, contai
                         total_letters += word_l
                     guessing_words_fuc(leftover, end-0.03*len(total_letters), end, container_adjusted, output_table, 'partial_adjusted')
             else:
+                print('f')
+                print(leftovers)
         # another way we get negative timing is when the end time of the script is inaccurate and we used it to estimate
         # the last bits of subtitle line
                 if len(leftover) == 1:
@@ -89,7 +94,7 @@ def estimating_words(leftover, start, end, container_cont, container_est, contai
                     for word_l in leftover:
                         total_letters += word_l
                     guessing_words_fuc(leftover, start, start+0.03*len(total_letters), container_est, output_table, "partial_adjusted")
-    return []
+    return {"words":[]}
 
 
 def duplicates(lst, item):
@@ -188,6 +193,8 @@ perf2 = 0
 output_table = []
 output_table_as_ls = []
 
+leftovers = {"words": []}
+
 for sw in subtitle_ls:
     # get amazon words with timings starting 0.5 sec before the start time of the sentence and ends 0.5 sec
     # after the sentence
@@ -202,9 +209,13 @@ for sw in subtitle_ls:
     # cannot do dtw if amazon don't have any words, will have to estimate based on subtitle duration and letter length
     # maybe worth removing lyrics from the subtitle or do it separately because for lyrics it seems occasions where
     # amazon didn't get anything is quite common.
+    if "start" not in list(leftovers.keys()):
+        leftovers["start"] = sw['start_time']
+    # if no start time means we don't use matched words from previous sentence for estimation
+
     if aw_within == []:
         guessing_words_fuc(sw['sentence_words'], sw['start_time'], sw['end_time'], estimated_words, output_table_as_ls, 'full')
-
+        leftovers = {"words":[]}
     else:
 
         # dtw
@@ -218,7 +229,6 @@ for sw in subtitle_ls:
         # aligned with the same "this" in the transcript, the second wouldn't get a timing because it would be repeated
         # can count how many instances like these there are first ...
         path_reo = reorganize_path(path)
-        leftovers = []
         for i in range(0,len(path_reo)):
            # container of words that don't have a time tag
             amazon_word_indexes = path_reo[i][1]
@@ -237,13 +247,15 @@ for sw in subtitle_ls:
                                        aw_within[aw_index]['end_time']]
                         if to_be_added not in matched_words:
                             matched = True
-                            leftovers = estimating_words(leftovers, sw['start_time'], aw_within[aw_index]['start_time'],
+                            leftovers['end'] = aw_within[aw_index]['start_time']
+                            leftovers = estimating_words(leftovers,
                                                          estimated_words_continuous_speech, estimated_words_with_aws,
                                                          estimated_words_adjusted,output_table_as_ls)
+                            leftovers['start'] = aw_within[aw_index]['end_time']
                             # when finding a word that have an "accurate" timing, see if any words
                             # before the current word is not aligned, and if there are, estimate their timing and
                             # clear the "leftovers" container
-                            sw['start_time'] = aw_within[aw_index]['end_time']
+
                             # change the start time of the sentence to the end time of accurate words, for the
                             # estimation of future left-overs
                             matched_words.append(to_be_added)
@@ -266,15 +278,16 @@ for sw in subtitle_ls:
                                            aw_within[aw_index]['end_time']]
                     if to_be_added not in (estimated_words_similar_match and matched_words):
                         matched = True
-                        leftovers = estimating_words(leftovers, sw['start_time'], aw_within[aw_index]['start_time'],
+                        leftovers['end'] = aw_within[aw_index]['start_time']
+                        leftovers = estimating_words(leftovers,
                                                      estimated_words_continuous_speech, estimated_words_with_aws, estimated_words_adjusted,output_table_as_ls)
-                        sw['start_time'] = aw_within[aw_index]['end_time']
+                        leftovers['start'] = aw_within[aw_index]['end_time']
                         estimated_words_similar_match.append(to_be_added)
                         output_table_as_ls.append([sw['sentence_words'][sw_index],aw_within[aw_index]["word"],aw_within[aw_index]['start_time'],  aw_within[aw_index]['end_time'], aw_within[aw_index]['end_time'] - aw_within[aw_index]['start_time'],'similar'])
 
                 # if subtitle word not matched with anything, make record of it.
                 elif not matched:
-                    leftovers.append(sw['sentence_words'][sw_index])
+                    leftovers['words'].append(sw['sentence_words'][sw_index])
 
             # if multiple subtitle words are aligned to one transcript word, estimate the timing based on the match:
             # if one & only one word is matched perfectly with the transcript word, take its timing and estimate the rest
@@ -290,7 +303,7 @@ for sw in subtitle_ls:
                 # if more than one perfect matches/no perfect match and max similarity <.6, estimate all
                 if len(matched_w) > 1 or (len(matched_w) == 0 and max(levenshtein_similarity)<.6):
                     for sw_index in sentence_word_indexes:
-                        leftovers.append(sw['sentence_words'][sw_index])
+                        leftovers['words'].append(sw['sentence_words'][sw_index])
 
                 # if only one perfect match use its timing and estimate others
                 elif len(matched_w) == 1:
@@ -299,16 +312,17 @@ for sw in subtitle_ls:
                             to_be_added = [sw['sentence_words'][sw_index], aw_within[aw_index]['start_time'],
                                            aw_within[aw_index]['end_time']]
                             if to_be_added not in matched_words:
-                                leftovers = estimating_words(leftovers, sw['start_time'], aw_within[aw_index]['start_time'],
+                                leftovers['end'] = aw_within[aw_index]['start_time']
+                                leftovers = estimating_words(leftovers,
                                                              estimated_words_continuous_speech, estimated_words_with_aws,
                                                              estimated_words_adjusted,output_table_as_ls)
-                                sw['start_time'] = aw_within[aw_index]['end_time']
+                                leftovers['start'] = aw_within[aw_index]['end_time']
 
                                 matched_words.append(to_be_added)
                                 output_table_as_ls.append([sw['sentence_words'][sw_index], aw_within[aw_index]["word"],aw_within[aw_index]['start_time'],aw_within[aw_index]['end_time'],aw_within[aw_index]['end_time'] - aw_within[aw_index]['start_time'], 'matched'])
 
                         else:
-                            leftovers.append(sw['sentence_words'][sw_index])
+                            leftovers['words'].append(sw['sentence_words'][sw_index])
 
                 # if no perfect match but max similarity > .6 gives the timing to the subtitle word with
                 # highest similarity and estimate the rest
@@ -320,22 +334,32 @@ for sw in subtitle_ls:
                             to_be_added = [sw['sentence_words'][sw_index], aw_within[aw_index]['start_time'],
                                            aw_within[aw_index]['end_time']]
                             if to_be_added not in (estimated_words_similar_match and matched_words):
-                                leftovers = estimating_words(leftovers, sw['start_time'], aw_within[aw_index]['start_time'],
-                                                 estimated_words_continuous_speech, estimated_words_with_aws, estimated_words_adjusted, output_table_as_ls)
-                                sw['start_time'] = aw_within[aw_index]['end_time']
+                                leftovers['end'] = aw_within[aw_index]['start_time']
+                                leftovers = estimating_words(leftovers,
+                                                 estimated_words_continuous_speech, estimated_words_with_aws,
+                                                             estimated_words_adjusted,output_table_as_ls)
+
+                                leftovers['start'] = aw_within[aw_index]['end_time']
                                 estimated_words_similar_match.append(to_be_added)
                                 output_table_as_ls.append([sw['sentence_words'][sw_index],aw_within[aw_index]["word"], aw_within[aw_index]['start_time'],  aw_within[aw_index]['end_time'], aw_within[aw_index]['end_time'] - aw_within[aw_index]['start_time'],'similar'])
 
                         else:
-                            leftovers.append(sw['sentence_words'][sw_index])
+                            leftovers['words'].append(sw['sentence_words'][sw_index])
 
             if i == len(path_reo)-1 and len(leftovers) != []:
-                # at the end of a subtitle line, check if any words still left not estimated, if so estimate based on
-                # start_time (= end time of the previously aligned word), and end time of sentence.
-                leftovers = estimating_words(leftovers, sw['start_time'], sw['end_time'],
-                                             estimated_words_continuous_speech, estimated_words_with_aws,
-                                             estimated_words_adjusted, output_table_as_ls,False)
-
+                sentence_index = subtitle_ls.index(sw)
+                if sentence_index< len(subtitle_ls)-1:
+                    aw_within_next = []
+                    for aw in transcript_ls:
+                        if aw['start_time'] > subtitle_ls[sentence_index + 1]['start_time'] - 0.5 \
+                                and aw['end_time'] < subtitle_ls[sentence_index + 1]['end_time'] + 0.5:
+                            aw_within_next.append(aw)
+                    if subtitle_ls[sentence_index]['end_time'] < subtitle_ls[sentence_index+1]['start_time']-1 or aw_within_next == []:
+                        # if gaps between 2 sentences greater than 1 sec, estimate with the end time of the subtitle
+                            leftovers['end'] = sw['end_time']
+                            leftovers = estimating_words(leftovers,
+                                                         estimated_words_continuous_speech, estimated_words_with_aws,
+                                                         estimated_words_adjusted, output_table_as_ls, False)
 
 
 
@@ -386,22 +410,22 @@ for row in output_table_as_ls:
             else:
                 output_table_as_ls.remove(row)
 row_index_shifted = []
-#   correct timing for remaining words
+   #correct timing for remaining words
 for row in output_table_as_ls:
     row_index = output_table_as_ls.index(row)
     if row_index != len(output_table_as_ls) - 1:
         next_row = output_table_as_ls[row_index + 1]
         if row[3] > next_row[2]:
-            # end time of word > start of next word. i.e. there's overlap
+           # end time of word > start of next word. i.e. there's overlap
             if row[5] != 'matched' and next_row[5] == 'matched':
                 row[3] = next_row[2]
                 row_index_shifted.append(row_index)
-                # if the word after is matched, use onset of next word as offset of current word
+               # if the word after is matched, use onset of next word as offset of current word
             else:
                 next_row[2] = row[3]
-                row_index_shifted.append(row_index+1)
+                row_index_shifted.append(row_index+1)#
                 # otherwise set the onset of next word, use offset of current word as onset of next word
-        row[4] = row[3]-row[2]
+        row[4] = row[3]-row[2] # calculate new interval
 
 
 freq_matched = 0
