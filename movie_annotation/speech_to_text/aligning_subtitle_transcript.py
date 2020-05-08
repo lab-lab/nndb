@@ -14,7 +14,7 @@ stopwords = set(stopwords.words('english'))
 
 #movie_name = input("movie name:")
 movie_name = ['12_years_a_slave','500_days_of_summer','back_to_the_future','citizenfour',
-              'split','the_prestige','the_shawshank_redemption','the_usual_suspects']
+              'split','the_prestige','the_shawshank_redemption','the_usual_suspects','little_miss_sunshine','pulp_fiction']
 for movie in movie_name:
     print(movie)
     subtitle_document = "/Users/huangjiawen/EBDb_project/movie_annotation/movie_subtitles_and_transcripts/%s_subtitle.srt"%movie
