@@ -8,7 +8,7 @@ You will have to register Amazon Web Services and Google Cloud accounts. Both of
 As a lot of these scripts will be running for a while, we recommend using tmux as a tool to leave your scripts running in the background of a server thatyou connect to via ssh.
 
 ## speech-to-text
-Here you'll find a script that uses Amazon's Speech Transcription API to transform the whole movie audio into a transcript. Individual words have start and end timestamps down to the milisecond. Have fun.
+Here you'll find a script that uses Amazon's Speech Transcription API to transform the whole movie audio into a transcript. Individual words have start and end timestamps down to the millisecond. Have fun.
 
 ## visual info
 Here you'll find scripts to use both AWS Rekognition and Google Cloud Video Intelligence API to get information about your videos: labels, face detection, emotion recognition, celebrity detection, scene labelling.
