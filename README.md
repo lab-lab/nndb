@@ -1,6 +1,6 @@
 # NNDb project by LAB lab, @UCL
 
-Welcome to the NNDb project GitHub page. Here you will find information on movie annotations and fMRI preprocessing steps.
+This is the GitHub page for the Naturalistic Neuroimaging Database' (NNDb). Here you will find fMRI (pre)processing scripts and information on movie annotations.
 
 # Requirements
 To run the preprocessing analysis we have used the AFNI software. Please follow installation guidelines here:
