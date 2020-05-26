@@ -1,4 +1,4 @@
-# NNDb project by LAB lab, @UCL
+# NNDb by the LAB Lab @UCL
 
 This is the GitHub page for the Naturalistic Neuroimaging Database' (NNDb). Here you will find fMRI (pre)processing scripts and information on movie annotations.
 
