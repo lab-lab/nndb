@@ -30,7 +30,7 @@ exec &> >(tee -a preprocessing_master_logfile.txt)
 # Typical step 1 might be:
 # set_vars setup_dir uniform strip mni_align fs_mni slice_t despike registration func_anat_align func_mni_align make_masks mask_func smooth_me
 # And step 2:
-# set_vars detrend_norm timing (or trim_func_v1) cat_func clean_dir
+# set_vars detrend_norm timing cat_func clean_dir
 
 # Set steps:
 # Please select from the steps above and add them as a list in steps_order below
@@ -180,15 +180,6 @@ do
     echo "****************************************************************************************************"
     echo ""
     "$scripts_dir"/preprocessing_functional_detrend_normalize.sh
-  fi
-
-  if [[ $step = trim_func_v1 ]]; then
-    echo ""
-    echo "****************************************************************************************************"
-    echo "* Fixing timing, mplayer v1"
-    echo "****************************************************************************************************"
-    echo ""
-    "$scripts_dir"/preprocessing_functional_trim_mplayer_v1.sh
   fi
 
   if [[ $step = timing ]]; then
