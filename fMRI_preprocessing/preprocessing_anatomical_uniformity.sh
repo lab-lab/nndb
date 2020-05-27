@@ -4,42 +4,36 @@
 # Correct for anatomical image intensity non-uniformity
 ################################################################################
 
-# NOTE
-# TODO: Apply to Movie? Done
-# Modernized since overlearn
-# Did a little 1mm blurring to help out
-
-for perp in $perps
+for subjecy in $participants
 do
 
-  cd "$data_dir"/"$perp"/
+  cd "$subject"/
 
-  for anatomical in 1 2 3 4
-  do
 
-    # Mask the anatomical image
-    3dAutomask \
-      -prefix anatomical_"$anatomical"_mask.nii.gz \
-      anatomical_"$anatomical".nii.gz
-    # Fill in any holes in the resulting mask
-    3dinfill -blend SOLID -minhits 2 \
-      -input  anatomical_"$anatomical"_mask.nii.gz \
-      -prefix anatomical_"$anatomical"_mask_fill.nii.gz
-    # Blur the anatomical some
-    3dBlurInMask \
+  # Mask the anatomical image
+  3dAutomask \
+      -prefix ./anat/"$subject"_T1w_mask.nii.gz \
+      ./anat/"$subject"_T1w.nii.gz
+  # Fill in any holes in the resulting mask
+  3dinfill -blend SOLID -minhits 2 \
+      -input  ./anat/"$subject"_T1w_mask.nii.gz \
+      -prefix ./anat/"$subject"_T1w_mask_fill.nii.gz
+  # Blur the anatomical
+  3dBlurInMask \
       -FWHM "$anatomical_blur_amount" \
-      -mask   anatomical_"$anatomical"_mask_fill.nii.gz \
-      -input  anatomical_"$anatomical".nii.gz \
-      -prefix anatomical_"$anatomical"_blur"$anatomical_blur_amount".nii.gz
-    # Use the newer program to uniformize wm/gm
-    3dUnifize \
+      -mask   ./anat/"$subject"_T1w_mask_fill.nii.gz \
+      -input  ./anat/"$subject"_T1w.nii.gz \
+      -prefix ./anat/"$subject"_T1w_blur"$anatomical_blur_amount".nii.gz
+  # Use the newer program to uniformize wm/gm
+  3dUnifize \
       -GM \
-      -input  anatomical_"$anatomical"_blur"$anatomical_blur_amount".nii.gz \
-      -prefix anatomical_"$anatomical"_blur"$anatomical_blur_amount"_uni.nii.gz
+      -input  ./anat/"$subject"_T1w_blur"$anatomical_blur_amount".nii.gz \
+      -prefix ./anat/"$subject"_T1w_blur"$anatomical_blur_amount"_uni.nii.gz
 
-    done
 done
 
+# This is just a naming change
+cp ./anat/"$subject"_T1w.nii.gz ./anat/"$subject"_T1w_avg.nii.gz
 ################################################################################
 # End
 ################################################################################
