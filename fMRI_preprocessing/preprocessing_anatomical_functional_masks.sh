@@ -5,52 +5,55 @@
 ################################################################################
 
 # NOTE:
-# Making this b/c I think melodic falters though when there are all zeros as added by the anatomical mask
+# Making this b/c melodic falters through when there are all zeros as added by the anatomical mask
 
-for perp in $perps
+for subject in $participants
 do
-    cd "$data_dir"/"$perp"/
+    cd "$subject"/
     # Make binary mask
-    rm anatomical_avg_uni_ns.aw_mask.nii.gz
+    rm ./anat/"$subject"_T1w_avg_uni_ns.aw_mask.nii.gz
     3dcalc \
-        -a anatomical_avg_uni_ns.aw.nii.gz \
+        -a ./anat/"$subject"_T1w_avg_uni_ns.aw.nii.gz \
         -expr 'astep(a,4)' \
-        -prefix anatomical_avg_uni_ns.aw_mask.nii.gz
+        -prefix ./anat/"$subject"_T1w_avg_uni_ns.aw_mask.nii.gz
+        
     # Resample binary mask
-    # set_center_run=1
-    num_files=`ls media_?.nii.gz | wc -l`
+    num_files=`ls ./func/"$subject"_task-"$movie"_run-0?_bold.nii.gz | wc -l`
     set_center_run=`echo "$((($num_files + 1) / 2))"`
-    rm anatomical_avg_uni_ns.aw_mask_resample.nii.gz
+    rm ./anat/"$subject"_T1w_avg_uni_ns.aw_mask_resample.nii.gz
     3dresample \
         -rmode NN \
-        -master media_"$set_center_run"_tshift_despike_reg_al_mni.nii.gz \
-        -input  anatomical_avg_uni_ns.aw_mask.nii.gz \
-        -prefix anatomical_avg_uni_ns.aw_mask_resample.nii.gz
-    # Smaller mask for media runs
-    total_num_runs=`ls ./media_?.nii.gz  | wc -l`
+        -master ./func/"$subject"_task-"$movie"_run-0"$set_center_run"_bold_tshift_despike_reg_al_mni.nii.gz \
+        -input  ./anat/"$subject"_T1w_avg_uni_ns.aw_mask.nii.gz \
+        -prefix ./anat/"$subject"_T1w_avg_uni_ns.aw_mask_resample.nii.gz
+        
+    # Smaller mask for functional runs
+    total_num_runs=`ls ./func/"$subject"_task-"$movie"_run-0?_bold.nii.gz  | wc -l`
     for run in `seq 1 $total_num_runs`
     do
-        rm media_"$run"_tshift_despike_reg_al_mni_mask.nii.gz
+        rm ./func/"$subject"_task-"$movie"_run-0"$run"_bold_tshift_despike_reg_al_mni_mask.nii.gz
         3dAutomask \
             -dilate 1 \
-            -prefix media_"$run"_tshift_despike_reg_al_mni_mask.nii.gz \
-            media_"$run"_tshift_despike_reg_al_mni.nii.gz
+            -prefix ./func/"$subject"_task-"$movie"_run-0"$run"_bold_tshift_despike_reg_al_mni_mask.nii.gz \
+            ./func/"$subject"_task-"$movie"_run-0"$run"_bold_tshift_despike_reg_al_mni.nii.gz
     done
-    # Combine media runs masks
-    rm functional_mask.nii.gz
+    
+    # Combine functional runs masks
+    rm ./func/"$subject"_task-"$movie"_bold_mask.nii.gz
     3dmask_tool \
         -union \
-        -inputs media_*_tshift_despike_reg_al_mni_mask.nii.gz \
-        -prefix functional_mask.nii.gz
+        -inputs ./func/"$subject"_task-"$movie"_run-0*_bold_tshift_despike_reg_al_mni_mask.nii.gz \
+        -prefix ./func/"$subject"_task-"$movie"_bold_mask.nii.gz
+        
     # Combine anatomical and functional masks
-    rm anatomical_mask.nii.gz
+    rm ./anat/"$subject"_T1w_mask.nii.gz
     3dmask_tool \
         -union \
-        -prefix anatomical_mask.nii.gz \
+        -prefix ./anat/"$subject"_T1w_mask.nii.gz \
         -inputs \
-        anatomical_avg_uni_ns.aw_mask_resample.nii.gz \
-        functional_mask.nii.gz
-    rm media_?_tshift_despike_reg_al_mni_mask.nii.gz
+        ./anat/"$subject"_T1w_avg_uni_ns.aw_mask_resample.nii.gz \
+        ./func/"$subject"_task-"$movie"_bold_mask.nii.gz
+    rm ./func/"$subject"_task-"$movie"_run-0?_bold_tshift_despike_reg_al_mni_mask.nii.gz
 done
 
 ################################################################################
