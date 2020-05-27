@@ -7,21 +7,21 @@
 # NOTE
 # This script removes the first eight TRS
 
-for perp in $perps
+for subject in $participants
 do
-    cd "$data_dir"/"$perp"/
+    cd "$subject"/
     # Move files if needed
-    mv ./files/timeseries_files/media_?.nii.gz ./
+    mv ./files/timeseries_files/"$subject"_task-"$movie"_run-0?_bold.nii.gz ./
     # Count the number of time series files
-    total_num_runs=`ls ./media_?.nii.gz  | wc -l`
+    total_num_runs=`ls ./func/"$subject"_task-"$movie"_run-0?_bold.nii.gz  | wc -l`
     # Loops through timeseries files and tshift
     for run in `seq 1 $total_num_runs`
     do
-      rm media_"$run"_tshift.nii.gz
+      rm ./func/"$subject"_task-"$movie"_run-0"$run"_bold_tshift.nii.gz
       3dTshift \
           -tpattern alt+z2 \
-          -prefix media_"$run"_tshift.nii.gz \
-          'media_'$run'.nii.gz[8..$]'
+          -prefix ./func/"$subject"_task-"$movie"_run-0"$run"_bold_tshift.nii.gz \
+          './func/'$subject'_task-'$movie'_run-0'$run'_bold.nii.gz[8..$]'
     done
 done
 
