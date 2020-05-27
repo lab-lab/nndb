@@ -4,7 +4,7 @@
 # Correct for anatomical image intensity non-uniformity
 ################################################################################
 
-for subjecy in $participants
+for subject in $participants
 do
 
   cd "$subject"/
