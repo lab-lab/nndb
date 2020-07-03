@@ -23,4 +23,4 @@ Currently the order in which to run the scripts is as follows:
 17. preprocessing_general_move_files.sh
 ```
 The scripts above should be run through `preprocessing_master.sh `. Please check the master script for more info. 
-NB: Some subjects needed slight variations of scripts due to re-localising or timing issues. Please see the `timing_script_fixes.sh` script for info. 
+NB: Some subjects needed slight variations of scripts due to re-localising or timing issues. Please see the `subject_fixes.sh` script for info. 
