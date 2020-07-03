@@ -22,4 +22,5 @@ Currently the order in which to run the scripts is as follows:
 16. preprocessing_functional_concatenate.sh
 17. preprocessing_general_move_files.sh
 ```
-Please see `preprocessing_master.sh ` for more info. 
+The scripts above should be run through `preprocessing_master.sh `. Please check the master script for more info. 
+NB: Some subjects needed slight variations of scripts due to re-localising or timing issues. Please see the `timing_script_fixes.sh` script for info. 
