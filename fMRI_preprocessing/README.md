@@ -1,3 +1,25 @@
 ## Scripts to analysis e-fMRI data from full length movie watching @ LAB Lab, UCL
 
-We've collected a series of scripts to process participant data from ecological functional magnetic resonance imaging (e-fMRI) of movies. The scripts are not yet functioning as whole. More information to follow.
+We've collated a series of scripts to process participant data from ecological functional magnetic resonance imaging (e-fMRI) of movies. The scripts are not yet functioning as a pipeline. More information to follow.
+
+Currently the order in which to run the scripts is as follows:
+```
+1. general_set_variables.sh
+2. preprocessing_general_set_up_directories.sh
+3. preprocessing_anatomical_uniformity.sh
+4. preprocessing_anatomical_skull_strip.sh
+5. preprocessing_anatomical_nonlinearly_align_to_mni.sh
+6. preprocessing_anatomical_freesurfer.sh
+7. preprocessing_functional_slice_timing.sh
+8. preprocessing_functional_despike.sh
+9. preprocessing_functional_volume_registration.sh
+10. preprocessing_functional_align_to_aligned_anatomical.sh
+11. preprocessing_functional_align_to_mni_anatomical.sh
+12. preprocessing_anatomical_functional_masks.sh
+13. preprocessing_functional_mask.sh
+14. preprocessing_functional_spatially_smooth.sh
+15. preprocessing_functional_timing.sh
+16. preprocessing_functional_concatenate.sh
+17. preprocessing_general_move_files.sh
+```
+Please see `preprocessing_master.sh ` for more info. 
