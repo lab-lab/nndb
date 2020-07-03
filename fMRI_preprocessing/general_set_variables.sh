@@ -74,10 +74,6 @@ export functional_blur_amount="6"
 export tr="1"
 export move_type_for_detrend="motion"
 
-# Set which ts file to work with
-export file_prefix="media_all_tshift_despike_reg_al_mni_mask_trim_timing"
-
-
 #############################
 # Set movies
 #############################
@@ -384,16 +380,16 @@ export functional_2_lost_end_sub-6="271"
 # Done with v1 of movieplayer, so no rewind times/end epoch
 
 # Timing info
-# These are based on averages b/c the real files were lost
-# period 546 109
 # 1533142658484
 # 1533142711633 start
 # 1533145982345 pause 1
 # 1533146110873 start
-export functional_1_lost_start_sub-7="109"
-export functional_2_lost_start_sub-7="109"
-export functional_1_lost_end_sub-7="546"
-export functional_2_lost_end_sub-7="546"
+# period 1 832 120
+# period 2 119 120
+export functional_1_lost_start_sub-7="120"
+export functional_2_lost_start_sub-7="120"
+export functional_1_lost_end_sub-7="832"
+export functional_2_lost_end_sub-7="119"
 
 #############################
 # sub-8
@@ -404,16 +400,16 @@ export functional_2_lost_end_sub-7="546"
 # Done with v1 of movieplayer, so no rewind times/end epoch
 
 # Timing info
-# These are based on averages b/c the real files were lost
-# period 546 109
 # 1533747162359
 # 1533747197311 start
 # 1533750465321 pause 1
 # 1533750540017 start
-export functional_1_lost_start_sub-8="109"
-export functional_2_lost_start_sub-8="109"
-export functional_1_lost_end_sub-8="546"
-export functional_2_lost_end_sub-8="546"
+# period 1 130 120
+# period 2 120 120
+export functional_1_lost_start_sub-8="120"
+export functional_2_lost_start_sub-8="120"
+export functional_1_lost_end_sub-8="130"
+export functional_2_lost_end_sub-8="120"
 
 #############################
 # sub-9
@@ -424,16 +420,16 @@ export functional_2_lost_end_sub-8="546"
 # Done with v1 of movieplayer, so no rewind times/end epoch
 
 # Timing info
-# These are based on averages b/c the real files were lost
-# period 546 109
 # 1534351164943
 # 1534351189954 start
 # 1534354459094 pause 1
 # 1534354568419 start
-export functional_1_lost_start_sub-9="109"
-export functional_2_lost_start_sub-9="109"
-export functional_1_lost_end_sub-9="546"
-export functional_2_lost_end_sub-9="546"
+# period 1 260 120
+# period 2 299 120
+export functional_1_lost_start_sub-9="120"
+export functional_2_lost_start_sub-9="120"
+export functional_1_lost_end_sub-9="260"
+export functional_2_lost_end_sub-9="299"
 
 #############################
 # sub-10
