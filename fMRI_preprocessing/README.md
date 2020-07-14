@@ -18,9 +18,10 @@ Currently the order in which to run the scripts is as follows:
 12. preprocessing_anatomical_functional_masks.sh
 13. preprocessing_functional_mask.sh
 14. preprocessing_functional_spatially_smooth.sh
-15. preprocessing_functional_timing.sh
-16. preprocessing_functional_concatenate.sh
-17. preprocessing_general_move_files.sh
+15. preprocessing_functional_detrend_normalize.sh
+16. preprocessing_functional_timing.sh
+17. preprocessing_functional_concatenate.sh
+18. preprocessing_general_move_files.sh
 ```
 The scripts above should be run through `preprocessing_master.sh `. Please check the master script for more info. 
 NB: Some subjects needed slight variations of scripts due to re-localising or timing issues. Please see the `subject_fixes.sh` script for info. 
