@@ -24,4 +24,25 @@ Currently the order in which to run the scripts is as follows:
 18. preprocessing_general_move_files.sh
 ```
 The scripts above should be run through `preprocessing_master.sh `. Please check the master script for more info. 
-NB: Some subjects needed slight variations of scripts due to re-localising or timing issues. Please see the `subject_fixes.sh` script for info. 
+NB: Some subjects needed slight variations of scripts due to re-localising or timing issues. Please see the `subject_fixes.sh` script for info before running preprocessing.
+The very final step is the ICA artifact removal, which was performed manually in our study. The noise removal script can be found in `preprocessing_functional_ica_based_artifact_cleansing.sh`. Please make sure to first run ICA with the command below, and add the subject ID and noise components to the script `preprocessing_functional_ica_based_artifact_cleansing.sh` before running it. 
+
+```
+### script to run ICA on individual subjects ####
+
+# Insert sub-ID and task
+sub="sub-XX"
+task="XXX"
+
+num_dim="250" # ICA over 250 dimensions
+timeseries_file="$sub"_task-"$task"_bold_tshift_despike_reg_al_mni_mask_blur6_norm_polort_motion_wm_ventricle_timing
+cd ./"$sub"/func/
+
+# run melodic for ICA
+melodic \
+    --dim="$num_dim" --tr=1.0 --nobet --report --Oall \
+    --outdir=ica_artifiact_d"$num_dim"_"$timeseries_file" \
+    --mask="$sub"_T1w_mask.nii.gz \
+    --bgimage="$sub"_T1w_mask.nii.gz \
+    --in="$timeseries_file".nii.gz
+```
