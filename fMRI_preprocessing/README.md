@@ -1,6 +1,6 @@
-## Scripts to analysis e-fMRI data from full length movie watching @ LAB Lab, UCL
+## Scripts to analysise e-fMRI data from full length movie watching @ LAB Lab, UCL
 
-We've collated a series of scripts to process participant data from ecological functional magnetic resonance imaging (e-fMRI) of movies. The scripts are not yet functioning as a pipeline. More information to follow.
+We've collated a series of scripts to process participant data from ecological functional magnetic resonance imaging (e-fMRI) of movies. The scripts are not  functioning as a pipeline, so they can be easily modified to fit different analyses. NOTE: These were the original v1.0 of NNDb preprocessing scripts. We have made available a new preprocessing using the master script afni_proc.py freely available with AFNI software. Please make sure to use the timing correction script (#16) below, even when using afni_proc or any other fMRI preprocessing pipeline.
 
 Currently the order in which to run the scripts is as follows:
 ```
@@ -19,7 +19,7 @@ Currently the order in which to run the scripts is as follows:
 13. preprocessing_functional_mask.sh
 14. preprocessing_functional_spatially_smooth.sh
 15. preprocessing_functional_detrend_normalize.sh
-16. preprocessing_functional_timing.sh
+16. preprocessing_functional_timing.sh (timing correction script- IMPORTANT!)
 17. preprocessing_functional_concatenate.sh
 18. preprocessing_general_move_files.sh
 ```
